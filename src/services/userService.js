@@ -15,15 +15,14 @@ import { db } from '../config/firebase';
 // Get all users
 export const getAllUsers = async () => {
   try {
-    const q = query(
-      collection(db, 'users'),
-      orderBy('createdAt', 'desc')
-    );
-    const snapshot = await getDocs(q);
-    const users = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    const snapshot = await getDocs(collection(db, 'users'));
+    const users = snapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .sort((a, b) => {
+        const dateA = a.createdAt?.toDate?.() || new Date(0);
+        const dateB = b.createdAt?.toDate?.() || new Date(0);
+        return dateB - dateA;
+      });
     return { users, error: null };
   } catch (error) {
     return { users: [], error: error.message };
@@ -33,16 +32,15 @@ export const getAllUsers = async () => {
 // Get pending users
 export const getPendingUsers = async () => {
   try {
-    const q = query(
-      collection(db, 'users'),
-      where('status', '==', 'pending'),
-      orderBy('createdAt', 'desc')
-    );
-    const snapshot = await getDocs(q);
-    const users = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    const snapshot = await getDocs(collection(db, 'users'));
+    const users = snapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .filter(u => u.status === 'pending')
+      .sort((a, b) => {
+        const dateA = a.createdAt?.toDate?.() || new Date(0);
+        const dateB = b.createdAt?.toDate?.() || new Date(0);
+        return dateB - dateA;
+      });
     return { users, error: null };
   } catch (error) {
     return { users: [], error: error.message };
@@ -52,17 +50,16 @@ export const getPendingUsers = async () => {
 // Get recent users
 export const getRecentUsers = async (limitCount = 5) => {
   try {
-    const q = query(
-      collection(db, 'users'),
-      where('role', '==', 'instructor'),
-      orderBy('createdAt', 'desc'),
-      limit(limitCount)
-    );
-    const snapshot = await getDocs(q);
-    const users = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    const snapshot = await getDocs(collection(db, 'users'));
+    const users = snapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .filter(u => u.role === 'instructor')
+      .sort((a, b) => {
+        const dateA = a.createdAt?.toDate?.() || new Date(0);
+        const dateB = b.createdAt?.toDate?.() || new Date(0);
+        return dateB - dateA;
+      })
+      .slice(0, limitCount);
     return { users, error: null };
   } catch (error) {
     return { users: [], error: error.message };
@@ -113,7 +110,7 @@ export const blockUser = async (userId) => {
   }
 };
 
-// Update user expiry date
+// Update user expiry
 export const updateUserExpiry = async (userId, expiryDate) => {
   try {
     await updateDoc(doc(db, 'users', userId), {
@@ -129,25 +126,16 @@ export const updateUserExpiry = async (userId, expiryDate) => {
 // Get user counts
 export const getUserCounts = async () => {
   try {
-    const allSnapshot = await getDocs(
-      query(collection(db, 'users'), where('role', '==', 'instructor'))
-    );
-    const pendingSnapshot = await getDocs(
-      query(collection(db, 'users'), where('status', '==', 'pending'))
-    );
-    const approvedSnapshot = await getDocs(
-      query(collection(db, 'users'), where('status', '==', 'approved'))
-    );
-    const blockedSnapshot = await getDocs(
-      query(collection(db, 'users'), where('status', '==', 'blocked'))
-    );
+    const snapshot = await getDocs(collection(db, 'users'));
+    const users = snapshot.docs.map(doc => doc.data());
+    const instructors = users.filter(u => u.role === 'instructor');
 
     return {
       counts: {
-        total: allSnapshot.size,
-        pending: pendingSnapshot.size,
-        approved: approvedSnapshot.size,
-        blocked: blockedSnapshot.size,
+        total: instructors.length,
+        pending: instructors.filter(u => u.status === 'pending').length,
+        approved: instructors.filter(u => u.status === 'approved').length,
+        blocked: instructors.filter(u => u.status === 'blocked').length,
       },
       error: null
     };

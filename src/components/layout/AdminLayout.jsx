@@ -3,6 +3,7 @@ import { Routes, Route, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Navbar from './Navbar';
 import AdminDashboard from '../../pages/admin/AdminDashboard';
+import UserManagement from '../../pages/admin/UserManagement';
 
 // Page title mapping
 const pageTitles = {
@@ -41,7 +42,7 @@ const AdminLayout = () => {
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <Routes>
             <Route path="/" element={<AdminDashboard />} />
-            <Route path="/users" element={<div className="text-xl font-bold text-gray-700">User Management — Coming Soon</div>} />
+            <Route path="/users" element={<UserManagement />} />
             <Route path="/trades" element={<div className="text-xl font-bold text-gray-700">Trade Management — Coming Soon</div>} />
             <Route path="/assessment" element={<div className="text-xl font-bold text-gray-700">Assessment Setup — Coming Soon</div>} />
           </Routes>
