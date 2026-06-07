@@ -4,6 +4,7 @@ import Sidebar from './Sidebar';
 import Navbar from './Navbar';
 import AdminDashboard from '../../pages/admin/AdminDashboard';
 import UserManagement from '../../pages/admin/UserManagement';
+import TradeManagement from '../../pages/admin/TradeManagement';
 
 // Page title mapping
 const pageTitles = {
@@ -43,7 +44,7 @@ const AdminLayout = () => {
           <Routes>
             <Route path="/" element={<AdminDashboard />} />
             <Route path="/users" element={<UserManagement />} />
-            <Route path="/trades" element={<div className="text-xl font-bold text-gray-700">Trade Management — Coming Soon</div>} />
+            <Route path="/trades" element={<TradeManagement />} />
             <Route path="/assessment" element={<div className="text-xl font-bold text-gray-700">Assessment Setup — Coming Soon</div>} />
           </Routes>
         </main>
