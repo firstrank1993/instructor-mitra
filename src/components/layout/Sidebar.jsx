@@ -4,10 +4,11 @@ import useAuthStore from '../../store/authStore';
 import { APP_NAME } from '../../config/constants';
 
 // Nav Item Component
-const NavItem = ({ to, icon, label, end = false }) => (
+const NavItem = ({ to, icon, label, end = false, onClick }) => (
   <NavLink
     to={to}
     end={end}
+    onClick={onClick}
     className={({ isActive }) =>
       `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
         isActive
@@ -152,6 +153,7 @@ const Sidebar = ({ isAdmin = false, isOpen = true, onClose }) => {
               icon={link.icon}
               label={link.label}
               end={link.end}
+              onClick={onClose}
             />
           ))}
         </nav>

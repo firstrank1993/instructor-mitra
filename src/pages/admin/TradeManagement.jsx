@@ -96,8 +96,8 @@ const TradeModal = ({ trade, onClose, onSave }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md my-auto">
 
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
@@ -115,7 +115,7 @@ const TradeModal = ({ trade, onClose, onSave }) => {
         </div>
 
         {/* Content */}
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 max-h-96 overflow-y-auto">
 
           {/* Error */}
           {error && (

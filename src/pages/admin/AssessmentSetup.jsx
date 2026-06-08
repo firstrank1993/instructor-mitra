@@ -1,16 +1,31 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { getAllTradesAdmin } from '../../services/tradeService';
-import { getLOsByTradeAndHalf, addLO, updateLO, deleteLO } from '../../services/loService';
-import { getPracticalsByLO, addPractical, updatePractical, deletePractical } from '../../services/practicalService';
-import { getAllCriteria, updateCriteria } from '../../services/criteriaService';
+import {
+  getLOsByTradeAndHalf,
+  addLO,
+  updateLO,
+  deleteLO
+} from '../../services/loService';
+import {
+  getPracticalsByLO,
+  addPractical,
+  updatePractical,
+  deletePractical
+} from '../../services/practicalService';
+import {
+  getAllCriteria,
+  updateCriteria
+} from '../../services/criteriaService';
 
-// Half tabs based on duration
+// Get halves based on trade duration
 const getHalves = (duration) => {
-  if (duration === 2) return ['H1', 'H2', 'H3', 'H4'];
-  return ['H1', 'H2'];
+  return duration === 2 ? ['H1', 'H2', 'H3', 'H4'] : ['H1', 'H2'];
 };
 
-// LO Modal
+// ================================================
+// LO MODAL
+// ================================================
 const LOModal = ({ lo, onClose, onSave, tradeId, tradeName, half, nextOrder }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -25,8 +40,6 @@ const LOModal = ({ lo, onClose, onSave, tradeId, tradeName, half, nextOrder }) =
       return;
     }
     setLoading(true);
-    setError('');
-
     if (lo) {
       await updateLO(lo.id, {
         loNumber: Number(formData.loNumber),
@@ -76,11 +89,10 @@ const LOModal = ({ lo, onClose, onSave, tradeId, tradeName, half, nextOrder }) =
               LO Number <span className="text-red-500">*</span>
             </label>
             <input
-              type="number"
+              type="number" min="1"
               value={formData.loNumber}
               onChange={(e) => setFormData(p => ({ ...p, loNumber: e.target.value }))}
               className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              min="1"
             />
           </div>
           <div>
@@ -105,9 +117,10 @@ const LOModal = ({ lo, onClose, onSave, tradeId, tradeName, half, nextOrder }) =
             disabled={loading}
             className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {loading ? (
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            ) : (lo ? 'Save Changes' : 'Add LO')}
+            {loading
+              ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              : lo ? 'Save Changes' : 'Add LO'
+            }
           </button>
         </div>
       </div>
@@ -115,7 +128,9 @@ const LOModal = ({ lo, onClose, onSave, tradeId, tradeName, half, nextOrder }) =
   );
 };
 
-// Practical Modal
+// ================================================
+// PRACTICAL MODAL
+// ================================================
 const PracticalModal = ({ practical, onClose, onSave, loId, loName, tradeId, half, nextNumber }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -130,8 +145,6 @@ const PracticalModal = ({ practical, onClose, onSave, loId, loName, tradeId, hal
       return;
     }
     setLoading(true);
-    setError('');
-
     if (practical) {
       await updatePractical(practical.id, {
         practicalNumber: Number(formData.practicalNumber),
@@ -180,11 +193,10 @@ const PracticalModal = ({ practical, onClose, onSave, loId, loName, tradeId, hal
               Practical Number <span className="text-red-500">*</span>
             </label>
             <input
-              type="number"
+              type="number" min="1"
               value={formData.practicalNumber}
               onChange={(e) => setFormData(p => ({ ...p, practicalNumber: e.target.value }))}
               className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              min="1"
             />
           </div>
           <div>
@@ -209,9 +221,10 @@ const PracticalModal = ({ practical, onClose, onSave, loId, loName, tradeId, hal
             disabled={loading}
             className="flex-1 bg-purple-600 text-white py-3 rounded-xl font-semibold hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {loading ? (
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            ) : (practical ? 'Save Changes' : 'Add Practical')}
+            {loading
+              ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              : practical ? 'Save Changes' : 'Add Practical'
+            }
           </button>
         </div>
       </div>
@@ -219,7 +232,179 @@ const PracticalModal = ({ practical, onClose, onSave, loId, loName, tradeId, hal
   );
 };
 
-// LO Card with Practicals
+// ================================================
+// EXCEL UPLOAD FOR LOs AND PRACTICALS
+// ================================================
+const LOExcelUpload = ({ tradeId, tradeName, half, onUploadComplete }) => {
+  const fileInputRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const downloadTemplate = () => {
+    const data = [
+      {
+        'LO Number': 1,
+        'LO Name': 'Basic Electrical Safety',
+        'Practical Number': 1,
+        'Practical Name': 'Identification of Electrical Tools',
+      },
+      {
+        'LO Number': 1,
+        'LO Name': 'Basic Electrical Safety',
+        'Practical Number': 2,
+        'Practical Name': 'Safety Equipment Usage',
+      },
+      {
+        'LO Number': 2,
+        'LO Name': 'House Wiring',
+        'Practical Number': 3,
+        'Practical Name': 'Single Phase Wiring',
+      },
+    ];
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'LOs');
+    ws['!cols'] = [{ wch: 12 }, { wch: 30 }, { wch: 18 }, { wch: 40 }];
+    XLSX.writeFile(wb, `lo_template_${tradeName}_${half}.xlsx`);
+  };
+
+  const handleUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    setResult(null);
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const data = new Uint8Array(event.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet);
+
+        if (rows.length === 0) {
+          setResult({ success: false, message: 'File is empty' });
+          setUploading(false);
+          return;
+        }
+
+        // Group rows by LO Number
+        const loMap = {};
+        for (const row of rows) {
+          const loNum = Number(row['LO Number'] || 0);
+          const loName = String(row['LO Name'] || '').trim();
+          const pNum = Number(row['Practical Number'] || 0);
+          const pName = String(row['Practical Name'] || '').trim();
+          if (!loNum || !loName) continue;
+          if (!loMap[loNum]) {
+            loMap[loNum] = { loNumber: loNum, loName, practicals: [] };
+          }
+          if (pNum && pName) {
+            loMap[loNum].practicals.push({
+              practicalNumber: pNum,
+              practicalName: pName,
+            });
+          }
+        }
+
+        let losSaved = 0;
+        let practicalsSaved = 0;
+
+        for (const loData of Object.values(loMap)) {
+          const { id: loId } = await addLO({
+            tradeId,
+            tradeName,
+            half,
+            loNumber: loData.loNumber,
+            loName: loData.loName,
+            order: loData.loNumber,
+          });
+          if (loId) {
+            losSaved++;
+            for (const p of loData.practicals) {
+              await addPractical({
+                tradeId,
+                loId,
+                loName: loData.loName,
+                half,
+                practicalNumber: p.practicalNumber,
+                practicalName: p.practicalName,
+                order: p.practicalNumber,
+              });
+              practicalsSaved++;
+            }
+          }
+        }
+
+        setResult({
+          success: true,
+          message: `Added ${losSaved} LOs and ${practicalsSaved} practicals!`
+        });
+        onUploadComplete();
+      } catch (err) {
+        setResult({ success: false, message: 'Failed to process file.' });
+      }
+      setUploading(false);
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  };
+
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+      <p className="text-sm font-bold text-blue-800 mb-1">
+        📥 Bulk Upload LOs & Practicals via Excel
+      </p>
+      <p className="text-xs text-blue-600 mb-3">
+        Download template → Fill LOs and Practicals → Upload
+      </p>
+      {result && (
+        <div className={`mb-3 p-2 rounded-xl text-xs font-medium ${
+          result.success
+            ? 'bg-green-50 text-green-700 border border-green-200'
+            : 'bg-red-50 text-red-700 border border-red-200'
+        }`}>
+          {result.message}
+        </div>
+      )}
+      <div className="flex gap-2 flex-wrap">
+        <button
+          onClick={downloadTemplate}
+          className="flex items-center gap-2 bg-white border border-green-300 text-green-700 px-3 py-2 rounded-xl text-xs font-semibold hover:bg-green-50"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Download Template
+        </button>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="flex items-center gap-2 bg-white border border-blue-300 text-blue-700 px-3 py-2 rounded-xl text-xs font-semibold hover:bg-blue-50 disabled:opacity-50"
+        >
+          {uploading
+            ? <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+          }
+          {uploading ? 'Uploading...' : 'Upload Excel'}
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          onChange={handleUpload}
+          className="hidden"
+        />
+      </div>
+    </div>
+  );
+};
+
+// ================================================
+// LO CARD WITH PRACTICALS
+// ================================================
 const LOCard = ({ lo, tradeId, half, onLOUpdated }) => {
   const [practicals, setPracticals] = useState([]);
   const [loadingPracticals, setLoadingPracticals] = useState(false);
@@ -241,7 +426,7 @@ const LOCard = ({ lo, tradeId, half, onLOUpdated }) => {
   };
 
   const handleDeletePractical = async (practical) => {
-    if (!window.confirm(`Delete practical "${practical.practicalName}"?`)) return;
+    if (!window.confirm(`Delete "${practical.practicalName}"?`)) return;
     await deletePractical(practical.id);
     loadPracticals();
   };
@@ -267,19 +452,19 @@ const LOCard = ({ lo, tradeId, half, onLOUpdated }) => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
         </button>
-
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded-lg">
+            <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-0.5 rounded-lg flex-shrink-0">
               LO-{lo.loNumber}
             </span>
             <p className="font-semibold text-gray-800 text-sm truncate">{lo.loName}</p>
           </div>
           <p className="text-xs text-gray-400 mt-0.5">
-            {practicals.length > 0 ? `${practicals.length} practicals` : 'Click to view practicals'}
+            {expanded && practicals.length > 0
+              ? `${practicals.length} practicals`
+              : 'Click arrow to view practicals'}
           </p>
         </div>
-
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
             onClick={() => setEditLO(true)}
@@ -309,7 +494,7 @@ const LOCard = ({ lo, tradeId, half, onLOUpdated }) => {
             </div>
           ) : practicals.length === 0 ? (
             <p className="text-xs text-gray-400 text-center py-3">
-              No practicals yet. Add your first practical.
+              No practicals yet. Add your first practical below.
             </p>
           ) : (
             practicals.map((practical) => (
@@ -344,11 +529,9 @@ const LOCard = ({ lo, tradeId, half, onLOUpdated }) => {
               </div>
             ))
           )}
-
-          {/* Add Practical Button */}
           <button
             onClick={() => setShowAddPractical(true)}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-purple-300 text-purple-600 text-xs font-semibold hover:bg-purple-50 transition-colors"
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-purple-300 text-purple-600 text-xs font-semibold hover:bg-purple-50"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -367,10 +550,7 @@ const LOCard = ({ lo, tradeId, half, onLOUpdated }) => {
           half={half}
           nextOrder={lo.order}
           onClose={() => setEditLO(false)}
-          onSave={() => {
-            setEditLO(false);
-            onLOUpdated();
-          }}
+          onSave={() => { setEditLO(false); onLOUpdated(); }}
         />
       )}
 
@@ -383,10 +563,7 @@ const LOCard = ({ lo, tradeId, half, onLOUpdated }) => {
           half={half}
           nextNumber={practicals.length + 1}
           onClose={() => setShowAddPractical(false)}
-          onSave={() => {
-            setShowAddPractical(false);
-            loadPracticals();
-          }}
+          onSave={() => { setShowAddPractical(false); loadPracticals(); }}
         />
       )}
 
@@ -400,17 +577,16 @@ const LOCard = ({ lo, tradeId, half, onLOUpdated }) => {
           half={half}
           nextNumber={practicals.length + 1}
           onClose={() => setEditPractical(null)}
-          onSave={() => {
-            setEditPractical(null);
-            loadPracticals();
-          }}
+          onSave={() => { setEditPractical(null); loadPracticals(); }}
         />
       )}
     </div>
   );
 };
 
-// Criteria Section
+// ================================================
+// CRITERIA SECTION
+// ================================================
 const CriteriaSection = () => {
   const [criteria, setCriteria] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -418,9 +594,7 @@ const CriteriaSection = () => {
   const [editingSubCriteria, setEditingSubCriteria] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    loadCriteria();
-  }, []);
+  useEffect(() => { loadCriteria(); }, []);
 
   const loadCriteria = async () => {
     setLoading(true);
@@ -444,12 +618,22 @@ const CriteriaSection = () => {
     </div>
   );
 
+  const totalMarks = criteria.reduce((sum, c) => sum + (c.maxMarks || 0), 0);
+
   return (
     <div className="space-y-3">
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-        <p className="text-amber-800 text-xs font-medium">
-          ⚠️ Assessment criteria apply to ALL trades. Total marks must always equal 100.
-          Current total: {criteria.reduce((sum, c) => sum + (c.maxMarks || 0), 0)} marks
+      <div className={`border rounded-xl p-3 ${
+        totalMarks === 100
+          ? 'bg-green-50 border-green-200'
+          : 'bg-amber-50 border-amber-200'
+      }`}>
+        <p className={`text-xs font-medium ${
+          totalMarks === 100 ? 'text-green-800' : 'text-amber-800'
+        }`}>
+          {totalMarks === 100
+            ? '✅ Total marks = 100. Criteria are correctly configured.'
+            : `⚠️ Current total = ${totalMarks} marks. Should be 100. Please adjust criteria marks.`
+          }
         </p>
       </div>
 
@@ -462,11 +646,11 @@ const CriteriaSection = () => {
             </div>
             <div className="flex-1">
               {editingCriteria === c.id ? (
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <input
                     defaultValue={c.name}
                     id={`criteria-name-${c.id}`}
-                    className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="flex-1 min-w-0 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <input
                     defaultValue={c.maxMarks}
@@ -480,9 +664,9 @@ const CriteriaSection = () => {
                       maxMarks: Number(document.getElementById(`criteria-marks-${c.id}`).value),
                     })}
                     disabled={saving}
-                    className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold"
+                    className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50"
                   >
-                    Save
+                    {saving ? '...' : 'Save'}
                   </button>
                   <button
                     onClick={() => setEditingCriteria(null)}
@@ -518,11 +702,11 @@ const CriteriaSection = () => {
               <div key={sub.subId} className="flex items-center gap-3 bg-white rounded-xl p-3 border border-gray-100">
                 <div className="flex-1">
                   {editingSubCriteria === sub.subId ? (
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
                       <input
                         defaultValue={sub.name}
                         id={`sub-name-${sub.subId}`}
-                        className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="flex-1 min-w-0 px-3 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <input
                         defaultValue={sub.maxMarks}
@@ -582,7 +766,9 @@ const CriteriaSection = () => {
   );
 };
 
-// Main Assessment Setup Page
+// ================================================
+// MAIN ASSESSMENT SETUP PAGE
+// ================================================
 const AssessmentSetup = () => {
   const [trades, setTrades] = useState([]);
   const [selectedTrade, setSelectedTrade] = useState(null);
@@ -593,9 +779,7 @@ const AssessmentSetup = () => {
   const [showAddLO, setShowAddLO] = useState(false);
   const [activeTab, setActiveTab] = useState('los');
 
-  useEffect(() => {
-    loadTrades();
-  }, []);
+  useEffect(() => { loadTrades(); }, []);
 
   useEffect(() => {
     if (selectedTrade) loadLOs();
@@ -654,29 +838,27 @@ const AssessmentSetup = () => {
         </button>
       </div>
 
+      {/* ============================================ */}
       {/* LOs & Practicals Tab */}
+      {/* ============================================ */}
       {activeTab === 'los' && (
         <div className="space-y-4">
-
-          {/* Trade Selector */}
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
             </div>
           ) : (
             <>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+              {/* Trade Selector */}
+              <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
                   Select Trade
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {trades.map((trade) => (
                     <button
                       key={trade.id}
-                      onClick={() => {
-                        setSelectedTrade(trade);
-                        setSelectedHalf('H1');
-                      }}
+                      onClick={() => { setSelectedTrade(trade); setSelectedHalf('H1'); }}
                       className={`px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${
                         selectedTrade?.id === trade.id
                           ? 'border-blue-600 bg-blue-50 text-blue-700'
@@ -684,6 +866,7 @@ const AssessmentSetup = () => {
                       }`}
                     >
                       {trade.name}
+                      <span className="ml-1 text-xs opacity-70">({trade.duration}yr)</span>
                     </button>
                   ))}
                 </div>
@@ -691,16 +874,16 @@ const AssessmentSetup = () => {
 
               {/* Half Selector */}
               {selectedTrade && (
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+                  <label className="block text-sm font-semibold text-gray-700 mb-3">
                     Select Half
                   </label>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     {halves.map((half) => (
                       <button
                         key={half}
                         onClick={() => setSelectedHalf(half)}
-                        className={`px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${
+                        className={`px-5 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${
                           selectedHalf === half
                             ? 'border-green-600 bg-green-50 text-green-700'
                             : 'border-gray-200 text-gray-600 hover:border-green-300'
@@ -716,10 +899,12 @@ const AssessmentSetup = () => {
               {/* LOs Section */}
               {selectedTrade && (
                 <div className="space-y-3">
+
+                  {/* LOs Header + Add Button */}
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="font-bold text-gray-800">
-                        Learning Outcomes — {selectedTrade.name} / {selectedHalf}
+                        {selectedTrade.name} — {selectedHalf}
                       </h3>
                       <p className="text-xs text-gray-500 mt-0.5">
                         {los.length} LO{los.length !== 1 ? 's' : ''} found
@@ -736,6 +921,15 @@ const AssessmentSetup = () => {
                     </button>
                   </div>
 
+                  {/* Excel Upload */}
+                  <LOExcelUpload
+                    tradeId={selectedTrade.id}
+                    tradeName={selectedTrade.name}
+                    half={selectedHalf}
+                    onUploadComplete={loadLOs}
+                  />
+
+                  {/* LO List */}
                   {loadingLOs ? (
                     <div className="flex items-center justify-center py-8">
                       <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
@@ -747,11 +941,15 @@ const AssessmentSetup = () => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                         </svg>
                       </div>
-                      <p className="text-gray-500 font-semibold text-sm">No LOs for {selectedTrade.name} / {selectedHalf}</p>
-                      <p className="text-gray-400 text-xs mt-1">Add your first Learning Outcome</p>
+                      <p className="text-gray-500 font-semibold text-sm">
+                        No LOs for {selectedTrade.name} / {selectedHalf}
+                      </p>
+                      <p className="text-gray-400 text-xs mt-1 mb-4">
+                        Add manually or upload Excel file above
+                      </p>
                       <button
                         onClick={() => setShowAddLO(true)}
-                        className="mt-4 bg-blue-600 text-white px-5 py-2 rounded-xl text-sm font-semibold hover:bg-blue-700"
+                        className="bg-blue-600 text-white px-5 py-2 rounded-xl text-sm font-semibold hover:bg-blue-700"
                       >
                         Add First LO
                       </button>
@@ -776,7 +974,9 @@ const AssessmentSetup = () => {
         </div>
       )}
 
+      {/* ============================================ */}
       {/* Criteria Tab */}
+      {/* ============================================ */}
       {activeTab === 'criteria' && <CriteriaSection />}
 
       {/* Add LO Modal */}
@@ -787,10 +987,7 @@ const AssessmentSetup = () => {
           half={selectedHalf}
           nextOrder={los.length + 1}
           onClose={() => setShowAddLO(false)}
-          onSave={() => {
-            setShowAddLO(false);
-            loadLOs();
-          }}
+          onSave={() => { setShowAddLO(false); loadLOs(); }}
         />
       )}
     </div>
