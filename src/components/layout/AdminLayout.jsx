@@ -5,6 +5,8 @@ import Navbar from './Navbar';
 import AdminDashboard from '../../pages/admin/AdminDashboard';
 import UserManagement from '../../pages/admin/UserManagement';
 import TradeManagement from '../../pages/admin/TradeManagement';
+import AssessmentSetup from '../../pages/admin/AssessmentSetup';
+
 
 // Page title mapping
 const pageTitles = {
@@ -45,7 +47,7 @@ const AdminLayout = () => {
             <Route path="/" element={<AdminDashboard />} />
             <Route path="/users" element={<UserManagement />} />
             <Route path="/trades" element={<TradeManagement />} />
-            <Route path="/assessment" element={<div className="text-xl font-bold text-gray-700">Assessment Setup — Coming Soon</div>} />
+            <Route path="/assessment" element={<AssessmentSetup />} />
           </Routes>
         </main>
       </div>
