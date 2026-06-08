@@ -4,6 +4,7 @@ import Sidebar from './Sidebar';
 import Navbar from './Navbar';
 import InstructorDashboard from '../../pages/instructor/InstructorDashboard';
 import BatchManagement from '../../pages/instructor/BatchManagement';
+import TraineeManagement from '../../pages/instructor/TraineeManagement';
 
 // Page title mapping
 const pageTitles = {
@@ -45,7 +46,7 @@ const InstructorLayout = () => {
           <Routes>
             <Route path="/" element={<InstructorDashboard />} />
             <Route path="/batches" element={<BatchManagement />} />
-            <Route path="/trainees" element={<div className="text-xl font-bold text-gray-700">Trainees — Coming Soon</div>} />
+            <Route path="/trainees" element={<TraineeManagement />} />
             <Route path="/marks" element={<div className="text-xl font-bold text-gray-700">Marks Entry — Coming Soon</div>} />
             <Route path="/reports" element={<div className="text-xl font-bold text-gray-700">Reports — Coming Soon</div>} />
             <Route path="/profile" element={<div className="text-xl font-bold text-gray-700">Profile — Coming Soon</div>} />
