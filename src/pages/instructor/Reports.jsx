@@ -10,26 +10,22 @@ import {
   getEDMarksForReport,
   getWCSMarksForReport,
 } from '../../services/reportsService';
-import { generateFAR1Excel } from '../../utils/far1Generator';
-import { generateSubjectReport } from '../../utils/far2Generator';
+import { generateFAR1Excel, generateFAR1PDF } from '../../utils/far1Generator';
+import { generateSubjectReportExcel, generateSubjectReportPDF } from '../../utils/far2Generator';
 
 const HALVES_1YR = ['H1', 'H2'];
 const HALVES_2YR = ['H1', 'H2', 'H3', 'H4'];
 
-// Report Card
+// Report Card Component
 const ReportCard = ({
-  title,
-  subtitle,
-  icon,
-  color,
-  available,
-  onDownloadExcel,
-  loading,
+  title, subtitle, available,
+  onDownloadExcel, onDownloadPDF,
+  loadingExcel, loadingPDF, color, icon,
 }) => (
   <div className={`bg-white rounded-2xl border-2 shadow-sm p-5 ${
     available ? 'border-gray-200' : 'border-gray-100 opacity-60'
   }`}>
-    <div className="flex items-start gap-4">
+    <div className="flex items-start gap-4 mb-4">
       <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
         {icon}
       </div>
@@ -38,27 +34,44 @@ const ReportCard = ({
         <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
         {!available && (
           <p className="text-xs text-red-500 mt-1 font-medium">
-            No marks saved for this report
+            ⚠ No marks saved — enter marks first
           </p>
         )}
       </div>
     </div>
 
     {available && (
-      <div className="flex gap-2 mt-4">
+      <div className="flex gap-2">
+        {/* Excel Download */}
         <button
           onClick={onDownloadExcel}
-          disabled={loading}
+          disabled={loadingExcel || loadingPDF}
           className="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-50"
         >
-          {loading ? (
+          {loadingExcel ? (
             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
           ) : (
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
             </svg>
           )}
-          Download Excel
+          Excel
+        </button>
+
+        {/* PDF Download */}
+        <button
+          onClick={onDownloadPDF}
+          disabled={loadingExcel || loadingPDF}
+          className="flex-1 flex items-center justify-center gap-2 bg-red-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-red-700 disabled:opacity-50"
+        >
+          {loadingPDF ? (
+            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+          ) : (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+          )}
+          PDF
         </button>
       </div>
     )}
@@ -77,6 +90,7 @@ const Reports = () => {
   const [generatingReport, setGeneratingReport] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [filterTrainee, setFilterTrainee] = useState('all');
 
   // Marks availability
   const [hasFAR1, setHasFAR1] = useState(false);
@@ -84,13 +98,8 @@ const Reports = () => {
   const [hasED, setHasED] = useState(false);
   const [hasWCS, setHasWCS] = useState(false);
 
-  // Selected trainees filter
-  const [filterTrainee, setFilterTrainee] = useState('all');
-
   useEffect(() => {
-    if (activeBatch && userData) {
-      loadData();
-    }
+    if (activeBatch && userData) loadData();
   }, [activeBatch, selectedHalf]);
 
   const loadData = async () => {
@@ -104,7 +113,6 @@ const Reports = () => {
       const { trainees: traineeList } = await getBatchTrainees(activeBatch.id);
       setTrainees(traineeList);
 
-      // Check what marks are available
       const { marks: far1Marks } = await getDistributedMarksForReport(activeBatch.id, selectedHalf);
       setHasFAR1(far1Marks.length > 0);
 
@@ -124,25 +132,62 @@ const Reports = () => {
     setLoading(false);
   };
 
-  // Get filtered trainees
   const getFilteredTrainees = () => {
     if (filterTrainee === 'all') return trainees;
     return trainees.filter(t => t.id === filterTrainee);
   };
 
-  // Generate FAR-1
-  const handleFAR1Excel = async () => {
-    if (!assessmentDate) {
-      setError('Please select assessment date first.');
-      return;
+  const getReportData = async (subjectType) => {
+    const filteredTrainees = getFilteredTrainees();
+    let subjectMarks = [];
+
+    if (subjectType === 'ES') {
+      const { marks } = await getESMarksForReport(activeBatch.id, selectedHalf);
+      subjectMarks = marks;
+    } else if (subjectType === 'ED') {
+      const { marks } = await getEDMarksForReport(activeBatch.id, selectedHalf);
+      subjectMarks = marks;
+    } else if (subjectType === 'WCS') {
+      const { marks } = await getWCSMarksForReport(activeBatch.id, selectedHalf);
+      subjectMarks = marks;
     }
 
-    setGeneratingReport('far1');
-    setError('');
+    const has5Subjects = trade?.subjects?.includes('ED') && trade?.subjects?.includes('WCS');
 
+    return {
+      trainees: filteredTrainees,
+      subjectMarks,
+      instructorData: userData,
+      batchData: activeBatch,
+      half: selectedHalf,
+      assessmentDate,
+      tradeData: trade,
+      has5Subjects,
+    };
+  };
+
+  const validateBeforeGenerate = () => {
+    if (!assessmentDate) {
+      setError('Please select assessment date first.');
+      return false;
+    }
+    return true;
+  };
+
+  // FAR-1 Excel
+  const handleFAR1Excel = async () => {
+    if (!validateBeforeGenerate()) return;
+    setGeneratingReport('far1-excel');
+    setError('');
     try {
       const filteredTrainees = getFilteredTrainees();
       const { marks: distributedMarks } = await getDistributedMarksForReport(activeBatch.id, selectedHalf);
+
+      if (distributedMarks.length === 0) {
+        setError('No distributed marks found for this half. Please enter marks first.');
+        setGeneratingReport(null);
+        return;
+      }
 
       const wb = generateFAR1Excel({
         trainees: filteredTrainees,
@@ -154,128 +199,82 @@ const Reports = () => {
         tradeData: trade,
       });
 
-      const fileName = `FAR1_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-      setSuccess(`FAR-1 report downloaded: ${fileName}`);
-
+      XLSX.writeFile(wb, `FAR1_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.xlsx`);
+      setSuccess('✅ FAR-1 Excel report downloaded successfully!');
     } catch (err) {
       console.error(err);
-      setError('Failed to generate FAR-1 report.');
+      setError('Failed to generate FAR-1 Excel report.');
     }
-
     setGeneratingReport(null);
   };
 
-  // Generate ES Report
-  const handleESExcel = async () => {
-    if (!assessmentDate) {
-      setError('Please select assessment date first.');
-      return;
-    }
-
-    setGeneratingReport('es');
+  // FAR-1 PDF
+  const handleFAR1PDF = async () => {
+    if (!validateBeforeGenerate()) return;
+    setGeneratingReport('far1-pdf');
     setError('');
-
     try {
       const filteredTrainees = getFilteredTrainees();
-      const { marks: esMarks } = await getESMarksForReport(activeBatch.id, selectedHalf);
-      const has5Subjects = trade?.subjects?.includes('ED') && trade?.subjects?.includes('WCS');
+      const { marks: distributedMarks } = await getDistributedMarksForReport(activeBatch.id, selectedHalf);
 
-      const wb = generateSubjectReport({
+      if (distributedMarks.length === 0) {
+        setError('No marks found for this half.');
+        setGeneratingReport(null);
+        return;
+      }
+
+      const doc = generateFAR1PDF({
         trainees: filteredTrainees,
-        subjectMarks: esMarks,
+        distributedMarks,
         instructorData: userData,
         batchData: activeBatch,
         half: selectedHalf,
         assessmentDate,
         tradeData: trade,
-        has5Subjects,
-      }, 'ES');
+      });
 
-      const fileName = `ES_FAR3_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-      setSuccess(`ES report downloaded: ${fileName}`);
-
+      doc.save(`FAR1_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.pdf`);
+      setSuccess('✅ FAR-1 PDF report downloaded successfully!');
     } catch (err) {
-      setError('Failed to generate ES report.');
+      console.error(err);
+      setError('Failed to generate FAR-1 PDF report.');
     }
-
     setGeneratingReport(null);
   };
 
-  // Generate ED Report
-  const handleEDExcel = async () => {
-    if (!assessmentDate) {
-      setError('Please select assessment date first.');
-      return;
-    }
-
-    setGeneratingReport('ed');
+  // Subject Reports (ES/ED/WCS)
+  const handleSubjectExcel = async (subjectType) => {
+    if (!validateBeforeGenerate()) return;
+    setGeneratingReport(`${subjectType.toLowerCase()}-excel`);
     setError('');
-
     try {
-      const filteredTrainees = getFilteredTrainees();
-      const { marks: edMarks } = await getEDMarksForReport(activeBatch.id, selectedHalf);
-
-      const wb = generateSubjectReport({
-        trainees: filteredTrainees,
-        subjectMarks: edMarks,
-        instructorData: userData,
-        batchData: activeBatch,
-        half: selectedHalf,
-        assessmentDate,
-        tradeData: trade,
-        has5Subjects: true,
-      }, 'ED');
-
-      const fileName = `ED_FAR2_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-      setSuccess(`ED report downloaded: ${fileName}`);
-
+      const reportData = await getReportData(subjectType);
+      const { wb } = generateSubjectReportExcel(reportData, subjectType);
+      XLSX.writeFile(wb, `${subjectType}_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.xlsx`);
+      setSuccess(`✅ ${subjectType} Excel report downloaded!`);
     } catch (err) {
-      setError('Failed to generate ED report.');
+      console.error(err);
+      setError(`Failed to generate ${subjectType} report.`);
     }
-
     setGeneratingReport(null);
   };
 
-  // Generate WCS Report
-  const handleWCSExcel = async () => {
-    if (!assessmentDate) {
-      setError('Please select assessment date first.');
-      return;
-    }
-
-    setGeneratingReport('wcs');
+  const handleSubjectPDF = async (subjectType) => {
+    if (!validateBeforeGenerate()) return;
+    setGeneratingReport(`${subjectType.toLowerCase()}-pdf`);
     setError('');
-
     try {
-      const filteredTrainees = getFilteredTrainees();
-      const { marks: wcsMarks } = await getWCSMarksForReport(activeBatch.id, selectedHalf);
-
-      const wb = generateSubjectReport({
-        trainees: filteredTrainees,
-        subjectMarks: wcsMarks,
-        instructorData: userData,
-        batchData: activeBatch,
-        half: selectedHalf,
-        assessmentDate,
-        tradeData: trade,
-        has5Subjects: true,
-      }, 'WCS');
-
-      const fileName = `WCS_FAR2_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-      setSuccess(`WCS report downloaded: ${fileName}`);
-
+      const reportData = await getReportData(subjectType);
+      const doc = generateSubjectReportPDF(reportData, subjectType);
+      doc.save(`${subjectType}_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.pdf`);
+      setSuccess(`✅ ${subjectType} PDF report downloaded!`);
     } catch (err) {
-      setError('Failed to generate WCS report.');
+      console.error(err);
+      setError(`Failed to generate ${subjectType} PDF.`);
     }
-
     setGeneratingReport(null);
   };
 
-  // No active batch
   if (!activeBatch) {
     return (
       <div className="max-w-3xl mx-auto">
@@ -310,42 +309,26 @@ const Reports = () => {
       {/* Success */}
       {success && (
         <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center gap-3">
-          <svg className="w-5 h-5 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
           <p className="text-green-700 font-semibold text-sm flex-1">{success}</p>
-          <button onClick={() => setSuccess('')} className="text-green-400 hover:text-green-600">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <button onClick={() => setSuccess('')} className="text-green-400 hover:text-green-600">✕</button>
         </div>
       )}
 
       {/* Error */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-center gap-3">
-          <svg className="w-5 h-5 text-red-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
           <p className="text-red-700 font-semibold text-sm flex-1">{error}</p>
-          <button onClick={() => setError('')} className="text-red-400 hover:text-red-600">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <button onClick={() => setError('')} className="text-red-400 hover:text-red-600">✕</button>
         </div>
       )}
 
-      {/* Filters Section */}
+      {/* Settings */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4">
         <h3 className="font-bold text-gray-800">Report Settings</h3>
 
-        {/* Half Selector */}
+        {/* Half */}
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-2">
-            Select Half
-          </label>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">Select Half</label>
           <div className="flex gap-2 flex-wrap">
             {halves.map((half) => (
               <button
@@ -363,7 +346,7 @@ const Reports = () => {
           </div>
         </div>
 
-        {/* Assessment Date */}
+        {/* Date */}
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-2">
             Date of Assessment <span className="text-red-500">*</span>
@@ -378,13 +361,11 @@ const Reports = () => {
 
         {/* Trainee Filter */}
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-2">
-            Generate For
-          </label>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">Generate For</label>
           <select
             value={filterTrainee}
             onChange={(e) => setFilterTrainee(e.target.value)}
-            className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-xs bg-white"
+            className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-sm bg-white"
           >
             <option value="all">All Trainees ({trainees.length})</option>
             {trainees.map(t => (
@@ -395,7 +376,7 @@ const Reports = () => {
           </select>
         </div>
 
-        {/* Availability Status */}
+        {/* Status */}
         <div className="bg-gray-50 rounded-xl p-3 space-y-2">
           <p className="text-xs font-semibold text-gray-600 mb-2">
             Marks Status for {selectedHalf}:
@@ -430,15 +411,22 @@ const Reports = () => {
         </div>
       ) : (
         <div className="space-y-4">
-          <h3 className="font-bold text-gray-800">Available Reports</h3>
+          <h3 className="font-bold text-gray-800">
+            Available Reports
+            <span className="ml-2 text-xs text-gray-400 font-normal">
+              (Each report has Excel + PDF download)
+            </span>
+          </h3>
 
           {/* FAR-1 */}
           <ReportCard
             title="FAR-1 — Trade Practical"
-            subtitle="Internal Assessment for Trade Practical (TP) — A4 Landscape"
+            subtitle="Internal Assessment TP — A4 Landscape — One sheet per trainee"
             available={hasFAR1}
-            loading={generatingReport === 'far1'}
+            loadingExcel={generatingReport === 'far1-excel'}
+            loadingPDF={generatingReport === 'far1-pdf'}
             onDownloadExcel={handleFAR1Excel}
+            onDownloadPDF={handleFAR1PDF}
             color="bg-blue-100"
             icon={
               <svg className="w-6 h-6 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -450,10 +438,12 @@ const Reports = () => {
           {/* FAR-3 ES */}
           <ReportCard
             title="FAR-3 Annexure III — Employability Skills"
-            subtitle={`Internal Assessment for ES — ${has5Subjects ? 'Out of 10 marks' : 'Out of 30 marks'} — A4 Portrait`}
+            subtitle={`Internal Assessment ES — ${has5Subjects ? 'Out of 10' : 'Out of 30'} marks — A4 Portrait`}
             available={hasES}
-            loading={generatingReport === 'es'}
-            onDownloadExcel={handleESExcel}
+            loadingExcel={generatingReport === 'es-excel'}
+            loadingPDF={generatingReport === 'es-pdf'}
+            onDownloadExcel={() => handleSubjectExcel('ES')}
+            onDownloadPDF={() => handleSubjectPDF('ES')}
             color="bg-green-100"
             icon={
               <svg className="w-6 h-6 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -462,14 +452,16 @@ const Reports = () => {
             }
           />
 
-          {/* FAR-2 ED — only if 5 subjects */}
+          {/* FAR-2 ED */}
           {has5Subjects && (
             <ReportCard
               title="FAR-2 — Engineering Drawing"
-              subtitle="Internal Assessment for ED — Out of 10 marks — A4 Portrait"
+              subtitle="Internal Assessment ED — Out of 10 marks — A4 Portrait"
               available={hasED}
-              loading={generatingReport === 'ed'}
-              onDownloadExcel={handleEDExcel}
+              loadingExcel={generatingReport === 'ed-excel'}
+              loadingPDF={generatingReport === 'ed-pdf'}
+              onDownloadExcel={() => handleSubjectExcel('ED')}
+              onDownloadPDF={() => handleSubjectPDF('ED')}
               color="bg-orange-100"
               icon={
                 <svg className="w-6 h-6 text-orange-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -479,14 +471,16 @@ const Reports = () => {
             />
           )}
 
-          {/* FAR-2 WCS — only if 5 subjects */}
+          {/* FAR-2 WCS */}
           {has5Subjects && (
             <ReportCard
               title="FAR-2 — Workshop Calculation & Science"
-              subtitle="Internal Assessment for WCS — Out of 10 marks — A4 Portrait"
+              subtitle="Internal Assessment WCS — Out of 10 marks — A4 Portrait"
               available={hasWCS}
-              loading={generatingReport === 'wcs'}
-              onDownloadExcel={handleWCSExcel}
+              loadingExcel={generatingReport === 'wcs-excel'}
+              loadingPDF={generatingReport === 'wcs-pdf'}
+              onDownloadExcel={() => handleSubjectExcel('WCS')}
+              onDownloadPDF={() => handleSubjectPDF('WCS')}
               color="bg-purple-100"
               icon={
                 <svg className="w-6 h-6 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -10,6 +10,7 @@ export const getDistributedMarksForReport = async (batchId, half) => {
       .filter(m => m.batchId === batchId && m.half === half);
     return { marks, error: null };
   } catch (error) {
+    console.error('getDistributedMarksForReport error:', error);
     return { marks: [], error: error.message };
   }
 };
@@ -23,6 +24,7 @@ export const getESMarksForReport = async (batchId, half) => {
       .filter(m => m.batchId === batchId && m.half === half);
     return { marks, error: null };
   } catch (error) {
+    console.error('getESMarksForReport error:', error);
     return { marks: [], error: error.message };
   }
 };
@@ -36,6 +38,7 @@ export const getEDMarksForReport = async (batchId, half) => {
       .filter(m => m.batchId === batchId && m.half === half);
     return { marks, error: null };
   } catch (error) {
+    console.error('getEDMarksForReport error:', error);
     return { marks: [], error: error.message };
   }
 };
@@ -49,6 +52,21 @@ export const getWCSMarksForReport = async (batchId, half) => {
       .filter(m => m.batchId === batchId && m.half === half);
     return { marks, error: null };
   } catch (error) {
+    console.error('getWCSMarksForReport error:', error);
+    return { marks: [], error: error.message };
+  }
+};
+
+// Get marks entry summary for batch and half
+export const getMarksEntrySummary = async (batchId, half) => {
+  try {
+    const snapshot = await getDocs(collection(db, 'marksEntry'));
+    const marks = snapshot.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(m => m.batchId === batchId && m.half === half);
+    return { marks, error: null };
+  } catch (error) {
+    console.error('getMarksEntrySummary error:', error);
     return { marks: [], error: error.message };
   }
 };
