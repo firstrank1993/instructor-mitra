@@ -6,6 +6,7 @@ import InstructorDashboard from '../../pages/instructor/InstructorDashboard';
 import BatchManagement from '../../pages/instructor/BatchManagement';
 import TraineeManagement from '../../pages/instructor/TraineeManagement';
 import MarksEntry from '../../pages/instructor/MarksEntry';
+import Reports from '../../pages/instructor/Reports';
 
 
 // Page title mapping
@@ -50,7 +51,7 @@ const InstructorLayout = () => {
             <Route path="/batches" element={<BatchManagement />} />
             <Route path="/trainees" element={<TraineeManagement />} />
             <Route path="/marks" element={<MarksEntry />} />
-            <Route path="/reports" element={<div className="text-xl font-bold text-gray-700">Reports — Coming Soon</div>} />
+            <Route path="/reports" element={<Reports />} />
             <Route path="/profile" element={<div className="text-xl font-bold text-gray-700">Profile — Coming Soon</div>} />
           </Routes>
         </main>
