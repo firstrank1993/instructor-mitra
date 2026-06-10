@@ -90,7 +90,7 @@ const Reports = () => {
   const [generatingReport, setGeneratingReport] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [filterTrainee, setFilterTrainee] = useState('all');
+  const [selectedTrainees, setSelectedTrainees] = useState([]);
 
   // Marks availability
   const [hasFAR1, setHasFAR1] = useState(false);
@@ -101,6 +101,14 @@ const Reports = () => {
   useEffect(() => {
     if (activeBatch && userData) loadData();
   }, [activeBatch, selectedHalf]);
+
+  // Auto-select all trainees when loaded
+useEffect(() => {
+  if (trainees.length > 0) {
+    setSelectedTrainees(trainees.map(t => t.id));
+  }
+}, [trainees]);
+
 
   const loadData = async () => {
     setLoading(true);
@@ -133,9 +141,9 @@ const Reports = () => {
   };
 
   const getFilteredTrainees = () => {
-    if (filterTrainee === 'all') return trainees;
-    return trainees.filter(t => t.id === filterTrainee);
-  };
+  if (selectedTrainees.length === 0) return trainees;
+  return trainees.filter(t => selectedTrainees.includes(t.id));
+};
 
   const getReportData = async (subjectType) => {
     const filteredTrainees = getFilteredTrainees();
@@ -359,22 +367,55 @@ const Reports = () => {
           />
         </div>
 
-        {/* Trainee Filter */}
-        <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-2">Generate For</label>
-          <select
-            value={filterTrainee}
-            onChange={(e) => setFilterTrainee(e.target.value)}
-            className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-sm bg-white"
-          >
-            <option value="all">All Trainees ({trainees.length})</option>
-            {trainees.map(t => (
-              <option key={t.id} value={t.id}>
-                {t.name} ({t.enrollmentNumber})
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Trainee Checklist Filter */}
+<div>
+  <div className="flex items-center justify-between mb-2">
+    <label className="block text-sm font-semibold text-gray-700">
+      Select Trainees
+    </label>
+    <div className="flex gap-2">
+      <button
+        onClick={() => setSelectedTrainees(trainees.map(t => t.id))}
+        className="text-xs text-blue-600 font-semibold hover:underline"
+      >
+        Select All
+      </button>
+      <span className="text-gray-300">|</span>
+      <button
+        onClick={() => setSelectedTrainees([])}
+        className="text-xs text-red-500 font-semibold hover:underline"
+      >
+        Clear
+      </button>
+    </div>
+  </div>
+  <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-50">
+    {trainees.map(t => (
+      <label
+        key={t.id}
+        className="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 cursor-pointer"
+      >
+        <input
+          type="checkbox"
+          checked={selectedTrainees.includes(t.id)}
+          onChange={(e) => {
+            if (e.target.checked) {
+              setSelectedTrainees(prev => [...prev, t.id]);
+            } else {
+              setSelectedTrainees(prev => prev.filter(id => id !== t.id));
+            }
+          }}
+          className="w-4 h-4 rounded text-blue-600"
+        />
+        <span className="text-sm text-gray-700 flex-1">{t.name}</span>
+        <span className="text-xs text-gray-400">{t.enrollmentNumber}</span>
+      </label>
+    ))}
+  </div>
+  <p className="text-xs text-gray-400 mt-1">
+    {selectedTrainees.length} of {trainees.length} trainees selected
+  </p>
+</div>
 
         {/* Status */}
         <div className="bg-gray-50 rounded-xl p-3 space-y-2">

@@ -80,7 +80,14 @@ export const generateFAR1Excel = (reportData) => {
       'Roll NO:', '', '',
       trainee.enrollmentNumber || '',
       '', 'Year of Enrollment:', '', '', '', '', '',
-      batchData.yearOfAssessment || '',
+      // Get year from first trainee's dateOfAdmission
+trainee.dateOfAdmission
+  ? trainee.dateOfAdmission.includes('/')
+    ? trainee.dateOfAdmission.split('/')[2]
+    : trainee.dateOfAdmission.split('-')[0]
+  : batchData.yearOfAssessment || '',
+
+
       '', '', '', 'Sem:', '', '', '',
       half,
     ]);

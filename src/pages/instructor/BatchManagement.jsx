@@ -50,10 +50,6 @@ const BatchModal = ({ batch, onClose, onSave, instructorData }) => {
       setError('Batch number is required');
       return;
     }
-    if (!formData.yearOfAssessment.trim()) {
-      setError('Year of assessment is required');
-      return;
-    }
 
     setLoading(true);
     setError('');
@@ -62,7 +58,7 @@ const BatchModal = ({ batch, onClose, onSave, instructorData }) => {
       // Update existing
       const { error: updateError } = await updateBatch(batch.id, {
         batchNumber: formData.batchNumber.trim(),
-        yearOfAssessment: formData.yearOfAssessment.trim(),
+        yearOfAssessment: new Date().getFullYear().toString(),
       });
       if (updateError) {
         setError('Failed to update batch. Please try again.');
@@ -150,22 +146,12 @@ const BatchModal = ({ batch, onClose, onSave, instructorData }) => {
             />
           </div>
 
-          {/* Year of Assessment */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Year of Assessment <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={formData.yearOfAssessment}
-              onChange={(e) => setFormData(prev => ({
-                ...prev,
-                yearOfAssessment: e.target.value
-              }))}
-              placeholder="e.g. 2024-25"
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+          {/* Year of Assessment — auto info */}
+<div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
+  <p className="text-xs text-blue-700 font-medium">
+    📅 Year of enrollment will be automatically derived from trainee's Date of Admission when you add trainees.
+  </p>
+</div>
 
           {/* Set as Active Toggle (only for new batch) */}
           {!batch && (
