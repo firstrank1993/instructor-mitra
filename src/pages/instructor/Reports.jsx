@@ -13,6 +13,38 @@ import {
 import { generateFAR1Excel, generateFAR1PDF } from '../../utils/far1Generator';
 import { generateSubjectReportExcel, generateSubjectReportPDF } from '../../utils/far2Generator';
 
+const REPORT_SERVER = 'http://localhost:3001';
+
+const downloadFromServer = async (endpoint, payload, filename) => {
+  const response = await fetch(`${REPORT_SERVER}${endpoint}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || 'Server error');
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+const isServerAvailable = async () => {
+  try {
+    const res = await fetch(`${REPORT_SERVER}/health`, { signal: AbortSignal.timeout(2000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+};
+
 const HALVES_1YR = ['H1', 'H2'];
 const HALVES_2YR = ['H1', 'H2', 'H3', 'H4'];
 
@@ -184,37 +216,49 @@ useEffect(() => {
 
   // FAR-1 Excel
   const handleFAR1Excel = async () => {
-    if (!validateBeforeGenerate()) return;
-    setGeneratingReport('far1-excel');
-    setError('');
-    try {
-      const filteredTrainees = getFilteredTrainees();
-      const { marks: distributedMarks } = await getDistributedMarksForReport(activeBatch.id, selectedHalf);
+  if (!validateBeforeGenerate()) return;
+  setGeneratingReport('far1-excel');
+  setError('');
+  try {
+    const filteredTrainees = getFilteredTrainees();
+    const { marks: distributedMarks } = await getDistributedMarksForReport(activeBatch.id, selectedHalf);
 
-      if (distributedMarks.length === 0) {
-        setError('No distributed marks found for this half. Please enter marks first.');
-        setGeneratingReport(null);
-        return;
-      }
-
-      const wb = generateFAR1Excel({
-        trainees: filteredTrainees,
-        distributedMarks,
-        instructorData: userData,
-        batchData: activeBatch,
-        half: selectedHalf,
-        assessmentDate,
-        tradeData: trade,
-      });
-
-      XLSX.writeFile(wb, `FAR1_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.xlsx`);
-      setSuccess('✅ FAR-1 Excel report downloaded successfully!');
-    } catch (err) {
-      console.error(err);
-      setError('Failed to generate FAR-1 Excel report.');
+    if (distributedMarks.length === 0) {
+      setError('No marks found for this half. Please enter marks first.');
+      setGeneratingReport(null);
+      return;
     }
-    setGeneratingReport(null);
-  };
+
+    const payload = {
+      trainees: filteredTrainees,
+      distributedMarks,
+      instructorData: userData,
+      batchData: activeBatch,
+      half: selectedHalf,
+      assessmentDate,
+      tradeData: trade,
+    };
+
+    const filename = `FAR1_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.xlsx`;
+    const serverOk = await isServerAvailable();
+
+    if (serverOk) {
+      // Use Python server for exact formatting
+      await downloadFromServer('/generate/far1', payload, filename);
+      setSuccess('✅ FAR-1 Excel (exact format) downloaded!');
+    } else {
+      // Fallback to browser generator
+      const wb = generateFAR1Excel(payload);
+      const XLSX = await import('xlsx');
+      XLSX.writeFile(wb, filename);
+      setSuccess('✅ FAR-1 Excel downloaded (start report server for exact formatting)');
+    }
+  } catch (err) {
+    console.error(err);
+    setError('Failed to generate FAR-1: ' + err.message);
+  }
+  setGeneratingReport(null);
+};
 
   // FAR-1 PDF
   const handleFAR1PDF = async () => {
@@ -252,20 +296,32 @@ useEffect(() => {
 
   // Subject Reports (ES/ED/WCS)
   const handleSubjectExcel = async (subjectType) => {
-    if (!validateBeforeGenerate()) return;
-    setGeneratingReport(`${subjectType.toLowerCase()}-excel`);
-    setError('');
-    try {
-      const reportData = await getReportData(subjectType);
+  if (!validateBeforeGenerate()) return;
+  setGeneratingReport(`${subjectType.toLowerCase()}-excel`);
+  setError('');
+  try {
+    const reportData = await getReportData(subjectType);
+    const filename = `${subjectType}_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.xlsx`;
+    const serverOk = await isServerAvailable();
+
+    if (serverOk) {
+      await downloadFromServer('/generate/subject', {
+        ...reportData,
+        subjectType,
+      }, filename);
+      setSuccess(`✅ ${subjectType} Excel (exact format) downloaded!`);
+    } else {
       const { wb } = generateSubjectReportExcel(reportData, subjectType);
-      XLSX.writeFile(wb, `${subjectType}_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.xlsx`);
-      setSuccess(`✅ ${subjectType} Excel report downloaded!`);
-    } catch (err) {
-      console.error(err);
-      setError(`Failed to generate ${subjectType} report.`);
+      const XLSX = await import('xlsx');
+      XLSX.writeFile(wb, filename);
+      setSuccess(`✅ ${subjectType} Excel downloaded (start report server for exact formatting)`);
     }
-    setGeneratingReport(null);
-  };
+  } catch (err) {
+    console.error(err);
+    setError(`Failed: ${err.message}`);
+  }
+  setGeneratingReport(null);
+};
 
   const handleSubjectPDF = async (subjectType) => {
     if (!validateBeforeGenerate()) return;
