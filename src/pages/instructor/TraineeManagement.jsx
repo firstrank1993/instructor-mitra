@@ -46,11 +46,12 @@ const TraineeModal = ({ trainee, onClose, onSave, batchData, instructorData, nex
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [formData, setFormData] = useState({
-    rollNumber: trainee?.rollNumber || '',
-    enrollmentNumber: trainee?.enrollmentNumber || '',
-    name: trainee?.name || '',
-    dateOfAdmission: toInputFormat(trainee?.dateOfAdmission || ''),
-  });
+  rollNumber: trainee?.rollNumber || '',
+  enrollmentNumber: trainee?.enrollmentNumber || '',
+  name: trainee?.name || '',
+  dateOfAdmission: toInputFormat(trainee?.dateOfAdmission || ''),
+  dateOfBirth: toInputFormat(trainee?.dateOfBirth || ''),
+});
 
   const handleSubmit = async () => {
     if (!formData.enrollmentNumber.trim()) {
@@ -66,11 +67,12 @@ const TraineeModal = ({ trainee, onClose, onSave, batchData, instructorData, nex
     setError('');
 
     const traineeData = {
-      rollNumber: formData.rollNumber.trim(),
-      enrollmentNumber: formData.enrollmentNumber.trim(),
-      name: formData.name.trim(),
-      dateOfAdmission: toStorageFormat(formData.dateOfAdmission),
-    };
+  rollNumber: formData.rollNumber.trim(),
+  enrollmentNumber: formData.enrollmentNumber.trim(),
+  name: formData.name.trim(),
+  dateOfAdmission: toStorageFormat(formData.dateOfAdmission),
+  dateOfBirth: toStorageFormat(formData.dateOfBirth),
+};
 
     if (trainee) {
       const { error: updateError } = await updateTrainee(trainee.id, traineeData);
@@ -180,6 +182,22 @@ const TraineeModal = ({ trainee, onClose, onSave, batchData, instructorData, nex
               Will be stored as DD/MM/YYYY. Year of enrollment is derived from this.
             </p>
           </div>
+
+          {/* Date of Birth */}
+<div>
+  <label className="block text-sm font-semibold text-gray-700 mb-2">
+    Date of Birth
+  </label>
+  <input
+    type="date"
+    value={formData.dateOfBirth}
+    onChange={(e) => setFormData(p => ({ ...p, dateOfBirth: e.target.value }))}
+    className="w-full px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+  />
+  <p className="text-xs text-gray-400 mt-1">
+    Will be stored as DD/MM/YYYY
+  </p>
+</div>
         </div>
 
         <div className="p-5 border-t border-gray-100 flex gap-3">
@@ -372,26 +390,28 @@ const TraineeManagement = () => {
 
   // Download Excel Template
   const downloadTemplate = () => {
-    const templateData = [
-      {
-        'Roll Number': '1',
-        'Enrollment Number': 'GJ-2024-001',
-        'Full Name': 'RAMESH KUMAR PATEL',
-        'Date of Admission (DD/MM/YYYY)': '15/06/2024',
-      },
-      {
-        'Roll Number': '2',
-        'Enrollment Number': 'GJ-2024-002',
-        'Full Name': 'SURESH BHAI SHAH',
-        'Date of Admission (DD/MM/YYYY)': '15/06/2024',
-      },
-    ];
+  const templateData = [
+    {
+      'Roll Number': '1',
+      'Enrollment Number': 'GJ-2024-001',
+      'Full Name': 'RAMESH KUMAR PATEL',
+      'Date of Birth (DD/MM/YYYY)': '01/01/2005',
+      'Date of Admission (DD/MM/YYYY)': '15/06/2024',
+    },
+    {
+      'Roll Number': '2',
+      'Enrollment Number': 'GJ-2024-002',
+      'Full Name': 'SURESH BHAI SHAH',
+      'Date of Birth (DD/MM/YYYY)': '15/03/2004',
+      'Date of Admission (DD/MM/YYYY)': '15/06/2024',
+    },
+  ];
 
     const ws = XLSX.utils.json_to_sheet(templateData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Trainees');
     ws['!cols'] = [
-      { wch: 14 }, { wch: 20 }, { wch: 30 }, { wch: 28 },
+      { wch: 14 }, { wch: 20 }, { wch: 30 }, {wch: 28}, { wch: 28 },
     ];
     XLSX.writeFile(wb, 'trainee_upload_template.xlsx');
   };
@@ -425,6 +445,7 @@ const TraineeManagement = () => {
             rollNumber: String(row['Roll Number'] || row['roll_number'] || row['Roll No'] || '').trim(),
             enrollmentNumber: String(row['Enrollment Number'] || row['enrollment_number'] || '').trim(),
             name: String(row['Full Name'] || row['Name'] || row['full_name'] || '').trim(),
+            dateOfBirth: String(row['Date of Birth (DD/MM/YYYY)'] || row['Date of Birth'] || row['date_of_birth'] || row['DOB'] || '').trim(),
             dateOfAdmission: String(row['Date of Admission (DD/MM/YYYY)'] || row['Date of Admission'] || row['date_of_admission'] || '').trim(),
             order: trainees.length + index + 1,
           })).filter(t => t.enrollmentNumber && t.name);
@@ -466,17 +487,18 @@ const TraineeManagement = () => {
   const downloadTraineeList = () => {
     if (trainees.length === 0) return;
     const data = trainees.map((t, index) => ({
-      'Sr. No.': index + 1,
-      'Roll Number': t.rollNumber || '',
-      'Enrollment Number': t.enrollmentNumber,
-      'Full Name': t.name,
-      'Date of Admission': t.dateOfAdmission || '',
-    }));
+  'Sr. No.': index + 1,
+  'Roll Number': t.rollNumber || '',
+  'Enrollment Number': t.enrollmentNumber,
+  'Full Name': t.name,
+  'Date of Birth': formatDateDisplay(t.dateOfBirth) || '',
+  'Date of Admission': formatDateDisplay(t.dateOfAdmission) || '',
+}));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Trainees');
     ws['!cols'] = [
-      { wch: 8 }, { wch: 14 }, { wch: 20 }, { wch: 30 }, { wch: 18 },
+      { wch: 8 }, { wch: 14 }, { wch: 20 }, { wch: 30 }, { wch: 18 }, {wch: 18},
     ];
     XLSX.writeFile(wb, `trainees_${activeBatch?.batchNumber || 'batch'}.xlsx`);
   };
@@ -636,7 +658,8 @@ const TraineeManagement = () => {
               <div className="col-span-1">Roll</div>
               <div className="col-span-3">Enrollment</div>
               <div className="col-span-4">Full Name</div>
-              <div className="col-span-2 hidden lg:block">Admission</div>
+              <div className="col-span-1 hidden lg:block">DOB</div>
+              <div className="col-span-1 hidden lg:block">Admission</div>
               <div className="col-span-3 lg:col-span-1 text-right">Actions</div>
             </div>
 
@@ -661,11 +684,16 @@ const TraineeManagement = () => {
                 <div className="col-span-4">
                   <p className="text-sm font-semibold text-gray-800 truncate">{trainee.name}</p>
                 </div>
-                <div className="col-span-2 hidden lg:block">
-                  <p className="text-xs text-gray-500">
-                    {formatDateDisplay(trainee.dateOfAdmission) || '—'}
-                  </p>
-                </div>
+                <div className="col-span-1 hidden lg:block">
+  <p className="text-xs text-gray-500">
+    {formatDateDisplay(trainee.dateOfBirth) || '—'}
+  </p>
+</div>
+<div className="col-span-1 hidden lg:block">
+  <p className="text-xs text-gray-500">
+    {formatDateDisplay(trainee.dateOfAdmission) || '—'}
+  </p>
+</div>
                 <div className="col-span-3 lg:col-span-1 flex items-center justify-end gap-1">
                   {/* View Marks */}
                   <button
