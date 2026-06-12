@@ -29,12 +29,98 @@ export const saveMarksEntry = async (entryData) => {
 };
 
 // Save distributed marks in batches
-export const saveDistributedMarks = async (
-  distributedData,
-  onProgress
-) => {
+export const saveDistributedMarks = async (distributedData, onProgress) => {
   try {
     const allRecords = [];
+
+    for (const trainee of distributedData) {
+      // Support both direct loDistribution and nested tpDistribution
+      const loDistribution =
+        trainee.loDistribution ||
+        trainee.tpDistribution?.loDistribution ||
+        [];
+
+      if (!loDistribution || loDistribution.length === 0) {
+        console.warn('Skipping trainee - no loDistribution:', trainee.traineeId);
+        continue;
+      }
+
+      for (const lo of loDistribution) {
+        const practicals = lo.practicalDistribution || lo.practicals || [];
+
+        for (const practical of practicals) {
+          allRecords.push({
+            instructorId: trainee.instructorId || '',
+            batchId: trainee.batchId || '',
+            traineeId: trainee.traineeId || '',
+            traineeName: trainee.traineeName || '',
+            tradeId: trainee.tradeId || '',
+            half: trainee.half || '',
+            loId: lo.loId || '',
+            loName: lo.loName || '',
+            loNumber: lo.loNumber || 0,
+            loMark: lo.loMark || 0,
+            practicalId: practical.practicalId || '',
+            practicalName: practical.practicalName || '',
+            practicalNumber: practical.practicalNumber || 0,
+            practicalMark: practical.practicalMark || 0,
+            criteriaMarks: practical.criteriaMarks || [],
+            entryType: trainee.entryType || '',
+            totalMarks: trainee.totalMarks || 0,
+            tpMarks70: trainee.tpMarks70 || null,
+            esMarks: trainee.esMarks || null,
+            edMarks: trainee.edMarks || null,
+            wcsMarks: trainee.wcsMarks || null,
+          });
+        }
+      }
+    }
+
+    console.log(`Total records to save: ${allRecords.length}`);
+
+    if (allRecords.length === 0) {
+      console.warn('No records to save in distributedMarks!');
+      return { saved: 0, error: 'No distributed marks data found' };
+    }
+
+    const total = allRecords.length;
+    let saved = 0;
+
+    for (let i = 0; i < allRecords.length; i += BATCH_WRITE_SIZE) {
+      const chunk = allRecords.slice(i, i + BATCH_WRITE_SIZE);
+      const batch = writeBatch(db);
+
+      for (const record of chunk) {
+        const recordId = `${record.batchId}_${record.traineeId}_${record.half}_${record.practicalId || record.practicalNumber}`;
+        const ref = doc(db, 'distributedMarks', recordId);
+        batch.set(ref, {
+          ...record,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+      saved += chunk.length;
+      console.log(`Saved ${saved}/${total} records`);
+
+      if (onProgress) {
+        onProgress(Math.round((saved / total) * 100));
+      }
+
+      if (i + BATCH_WRITE_SIZE < allRecords.length) {
+        await delay(BATCH_WRITE_DELAY);
+      }
+    }
+
+    console.log(`✅ distributedMarks saved: ${saved} records`);
+    return { saved, error: null };
+
+  } catch (error) {
+    console.error('saveDistributedMarks error:', error);
+    return { saved: 0, error: error.message };
+  }
+};
 
     // Flatten all records
     for (const trainee of distributedData) {
@@ -103,7 +189,8 @@ export const saveDistributedMarks = async (
     }
 
     return { saved, error: null };
-  } catch (error) {
+  } 
+catch (error) {
     console.error('saveDistributedMarks error:', error);
     return { saved: 0, error: error.message };
   }

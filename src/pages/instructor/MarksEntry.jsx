@@ -374,11 +374,20 @@ const MarksEntry = () => {
       setSaveProgress(40);
       setSaveMessage('Saving distributed marks to database...');
 
-      // Save detailed distributed marks
-      await saveDistributedMarks(
-        distributed,
-        (progress) => setSaveProgress(40 + Math.round(progress * 0.4))
-      );
+      // Add batchId, instructorId, tradeId, half to each distributed item
+const distributedWithMeta = distributed.map(t => ({
+  ...t,
+  instructorId: userData.uid,
+  batchId: activeBatch.id,
+  tradeId: userData.tradeId,
+  half: selectedHalf,
+}));
+
+// Save detailed distributed marks
+await saveDistributedMarks(
+  distributedWithMeta,
+  (progress) => setSaveProgress(40 + Math.round(progress * 0.4))
+);
 
       setSaveProgress(80);
       setSaveMessage('Saving subject marks...');
