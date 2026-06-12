@@ -374,14 +374,16 @@ const MarksEntry = () => {
       setSaveProgress(40);
       setSaveMessage('Saving distributed marks to database...');
 
-      // Add batchId, instructorId, tradeId, half to each distributed item
+      // Add metadata to each distributed trainee record
 const distributedWithMeta = distributed.map(t => ({
   ...t,
   instructorId: userData.uid,
   batchId: activeBatch.id,
-  tradeId: userData.tradeId,
+  tradeId: userData.tradeId || '',
   half: selectedHalf,
 }));
+
+console.log('Distributed with meta sample:', JSON.stringify(distributedWithMeta[0], null, 2));
 
 // Save detailed distributed marks
 await saveDistributedMarks(
