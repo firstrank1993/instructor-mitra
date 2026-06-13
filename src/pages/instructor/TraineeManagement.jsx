@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import useAuthStore from '../../store/authStore';
 import useAppStore from '../../store/appStore';
+import { getDocs, collection, query, where } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 import {
   getBatchTrainees,
   addTrainee,
