@@ -150,7 +150,47 @@ export const archiveBatch = async (batchId) => {
 // Delete batch
 export const deleteBatch = async (batchId) => {
   try {
+    const { getDocs, collection, query, where, writeBatch } = await import('firebase/firestore');
+
+    // Collections to clean up
+    const collectionsToClean = [
+      'trainees',
+      'marksEntry',
+      'distributedMarks',
+      'esMarks',
+      'edMarks',
+      'wcsMarks',
+    ];
+
+    // Delete all related documents
+    for (const collectionName of collectionsToClean) {
+      const q = query(
+        collection(db, collectionName),
+        where('batchId', '==', batchId)
+      );
+      const snapshot = await getDocs(q);
+
+      if (snapshot.empty) continue;
+
+      // Delete in batches of 25
+      const chunks = [];
+      const docs = snapshot.docs;
+      for (let i = 0; i < docs.length; i += 25) {
+        chunks.push(docs.slice(i, i + 25));
+      }
+
+      for (const chunk of chunks) {
+        const batch = writeBatch(db);
+        chunk.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+
+      console.log(`Deleted ${snapshot.size} docs from ${collectionName}`);
+    }
+
+    // Finally delete the batch itself
     await deleteDoc(doc(db, 'batches', batchId));
+    console.log(`✅ Batch ${batchId} and all related data deleted`);
     return { error: null };
   } catch (error) {
     console.error('deleteBatch error:', error);
