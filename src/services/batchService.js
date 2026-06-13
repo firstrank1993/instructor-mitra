@@ -6,6 +6,9 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
+  query,
+  where,
+  writeBatch,
   serverTimestamp
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -82,20 +85,17 @@ export const createBatch = async (batchData) => {
 };
 
 // Set batch as active
-// Deactivates all other batches for this instructor first
 export const setActiveBatch = async (instructorId, batchId) => {
   try {
     if (!instructorId || !batchId) {
       return { error: 'Missing instructor ID or batch ID' };
     }
 
-    // Get all batches for this instructor
     const snapshot = await getDocs(collection(db, 'batches'));
     const instructorBatches = snapshot.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .filter(b => b.instructorId === instructorId);
 
-    // Deactivate all
     for (const batch of instructorBatches) {
       if (batch.isActive === true) {
         await updateDoc(doc(db, 'batches', batch.id), {
@@ -105,7 +105,6 @@ export const setActiveBatch = async (instructorId, batchId) => {
       }
     }
 
-    // Activate selected batch
     await updateDoc(doc(db, 'batches', batchId), {
       isActive: true,
       updatedAt: serverTimestamp(),
@@ -147,13 +146,11 @@ export const archiveBatch = async (batchId) => {
   }
 };
 
-// Delete batch
+// Delete batch and ALL related data
 export const deleteBatch = async (batchId) => {
   try {
-    const { getDocs, collection, query, where, writeBatch } = await import('firebase/firestore');
-
-    // Collections to clean up
-    const collectionsToClean = [
+    // Collections that have batchId field
+    const relatedCollections = [
       'trainees',
       'marksEntry',
       'distributedMarks',
@@ -162,36 +159,33 @@ export const deleteBatch = async (batchId) => {
       'wcsMarks',
     ];
 
-    // Delete all related documents
-    for (const collectionName of collectionsToClean) {
+    // Delete all related documents for each collection
+    for (const collName of relatedCollections) {
       const q = query(
-        collection(db, collectionName),
+        collection(db, collName),
         where('batchId', '==', batchId)
       );
       const snapshot = await getDocs(q);
 
       if (snapshot.empty) continue;
 
-      // Delete in batches of 25
-      const chunks = [];
-      const docs = snapshot.docs;
-      for (let i = 0; i < docs.length; i += 25) {
-        chunks.push(docs.slice(i, i + 25));
+      // Delete in chunks of 25 (Firestore batch limit)
+      const allDocs = snapshot.docs;
+      for (let i = 0; i < allDocs.length; i += 25) {
+        const chunk = allDocs.slice(i, i + 25);
+        const batchWrite = writeBatch(db);
+        chunk.forEach(d => batchWrite.delete(d.ref));
+        await batchWrite.commit();
       }
 
-      for (const chunk of chunks) {
-        const batch = writeBatch(db);
-        chunk.forEach(d => batch.delete(d.ref));
-        await batch.commit();
-      }
-
-      console.log(`Deleted ${snapshot.size} docs from ${collectionName}`);
+      console.log(`Deleted ${snapshot.size} records from ${collName}`);
     }
 
-    // Finally delete the batch itself
+    // Finally delete the batch document itself
     await deleteDoc(doc(db, 'batches', batchId));
-    console.log(`✅ Batch ${batchId} and all related data deleted`);
+    console.log(`✅ Batch ${batchId} fully deleted with all related data`);
     return { error: null };
+
   } catch (error) {
     console.error('deleteBatch error:', error);
     return { error: error.message };
