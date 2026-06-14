@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 /**
  * Build one practical data row
@@ -364,7 +364,7 @@ export const generateFAR1PDF = (reportData) => {
     finalRow[38] = overallAvg;
     tableBody.push(finalRow);
 
-    doc.autoTable({
+    autoTable(doc, {
       head: tableHead,
       body: tableBody,
       startY: 30,

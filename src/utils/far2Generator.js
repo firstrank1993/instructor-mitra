@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 // Random int between min and max inclusive
 const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -212,20 +212,25 @@ export const generateSubjectReportExcel = (reportData, subjectType) => {
     const dist = distributeSubjectMarks(targetMark, isOutOf30);
     traineeDistributions.push({ trainee, dist, targetMark });
 
-    rows.push([
-      trainee.enrollmentNumber || '',
-      trainee.name || '',
-      '',           // C - blank (name spans B-C)
-      dist.b,       // D - Attendance
-      dist.c,       // E - Speed/Accuracy
-      dist.d,       // F - Creative
-      '',           // G - blank
-      dist.e,       // H - Q1
-      dist.f,       // I - Q2
-      dist.totalOutOf60,  // J - Total
-      dist.converted,     // K - Converted
-      '',           // L - Sign
-    ]);
+    // Format converted marks properly
+const convertedDisplay = isOutOf30
+  ? Math.round(dist.converted * 2) / 2  // Round to 0.5
+  : parseFloat(dist.converted.toFixed(2));
+
+rows.push([
+  trainee.enrollmentNumber || '',  // A - Roll No
+  trainee.name || '',              // B - Name
+  '',                              // C - blank
+  dist.b,                          // D - Attendance (0-5)
+  dist.c,                          // E - Speed (0-5)
+  dist.d,                          // F - Creative (0-10)
+  '',                              // G - blank
+  dist.e,                          // H - Q1 (0-20)
+  dist.f,                          // I - Q2 (0-20)
+  dist.totalOutOf60,               // J - Total (0-60)
+  convertedDisplay,                // K - Converted marks
+  '',                              // L - Sign
+]);
   }
 
   // Blank row
@@ -356,7 +361,7 @@ export const generateSubjectReportPDF = (reportData, subjectType) => {
     ];
   });
 
-  doc.autoTable({
+  autoTable(doc, {
     head: tableHead,
     body: tableBody,
     startY: headerY + 25,
@@ -376,7 +381,7 @@ export const generateSubjectReportPDF = (reportData, subjectType) => {
   });
 
   // Sign line
-  const finalY = doc.lastAutoTable.finalY + 10;
+  const finalY = (doc.lastAutoTable?.finalY || 100) + 10;
   doc.setFontSize(8);
   doc.text('Sign of SI :', 14, finalY);
   doc.text('Sign of FI :', 100, finalY);
