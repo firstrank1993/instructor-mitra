@@ -2,13 +2,14 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-// Random int between min and max inclusive
+/**
+ * Random int between min and max inclusive
+ */
 const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
 /**
  * Distribute subject marks into sub-components
- * Components: B(Attendance) + C(Speed) + D(Creative) + E(Q1) + F(Q2) = Total out of 60
- * B: 2-5, C: 2-5, D: 3-9, E: 8-20, F: 8-20, E≠F
+ * B(Attendance 0-5) + C(Speed 0-5) + D(Creative 0-10) + E(Q1 0-20) + F(Q2 0-20) = Total(0-60)
  * Then convert: out of 30 = Total/2, out of 10 = Total/6
  */
 const distributeSubjectMarks = (targetMark, isOutOf30) => {
@@ -16,7 +17,7 @@ const distributeSubjectMarks = (targetMark, isOutOf30) => {
     ? Math.round(targetMark * 2)
     : Math.round(targetMark * 6);
 
-  const clampedTarget = Math.max(20, Math.min(60, targetOutOf60));
+  const clamped = Math.max(20, Math.min(60, targetOutOf60));
 
   let b, c, d, e, f;
   let attempts = 0;
@@ -25,12 +26,9 @@ const distributeSubjectMarks = (targetMark, isOutOf30) => {
     b = randInt(2, 5);
     c = randInt(2, 5);
     d = randInt(3, 9);
-    const remaining = clampedTarget - b - c - d;
+    const remaining = clamped - b - c - d;
 
-    if (remaining < 16 || remaining > 40) {
-      attempts++;
-      continue;
-    }
+    if (remaining < 16 || remaining > 40) { attempts++; continue; }
 
     const eMin = Math.max(8, remaining - 20);
     const eMax = Math.min(20, remaining - 8);
@@ -46,7 +44,7 @@ const distributeSubjectMarks = (targetMark, isOutOf30) => {
 
   if (attempts >= 500) {
     b = 3; c = 3; d = 6;
-    const rem = clampedTarget - b - c - d;
+    const rem = clamped - b - c - d;
     e = Math.min(20, Math.max(8, Math.floor(rem / 2)));
     f = rem - e;
     if (f < 8) { e = rem - 8; f = 8; }
@@ -56,14 +54,16 @@ const distributeSubjectMarks = (targetMark, isOutOf30) => {
   const totalOutOf60 = b + c + d + e + f;
   const converted = isOutOf30
     ? totalOutOf60 / 2
-    : parseFloat((totalOutOf60 / 6).toFixed(4));
+    : totalOutOf60 / 6;
 
   return { b, c, d, e, f, totalOutOf60, converted };
 };
 
 /**
  * Generate ES/WCS/ED Excel report
- * Exact format matching actual report files
+ * Exact format matching actual reports
+ * Columns: A=Roll No, B=Name, C=blank, D=Attendance, E=Speed, F=Creative,
+ *          G=blank, H=Q1, I=Q2, J=Total, K=Converted, L=Sign
  */
 export const generateSubjectReportExcel = (reportData, subjectType) => {
   const {
@@ -79,92 +79,95 @@ export const generateSubjectReportExcel = (reportData, subjectType) => {
 
   const isOutOf30 = !has5Subjects && subjectType === 'ES';
 
-  const reportTitles = {
-    ES: 'ANNEXURE-III (FAR-2 )',
-    WCS: '(FAR-2 )',
-    ED: '(FAR-2 )',
-  };
+  const reportTitle = subjectType === 'ES'
+    ? 'ANNEXURE-III (FAR-2 )'
+    : '(FAR-2 )';
 
-  const subjectTitles = {
+  const subjectTitle = {
     ES: 'FORMAT FOR INTERNAL ASSESSMENT FOR EMPLOYABILITY SKILLS',
     WCS: 'FORMAT FOR INTERNAL ASSESSMENT FOR WORKSHOP CALCULATION & SCIENCE',
     ED: 'FORMAT FOR INTERNAL ASSESSMENT FOR ENGINEERING DRAWING',
-  };
+  }[subjectType];
 
   const conversionLabel = isOutOf30
-    ? 'Convert Total Marks in  to 30 Markes =  {(Col.G)/2}'
-    : 'Convert Total Marks in  to 10 Markes =  {(Col.G)/6}';
+    ? 'Convert Total Marks in  to 30 Markes =\n{(Col.G)/2}'
+    : 'Convert Total Marks in  to 10 Markes =\n{(Col.G)/6}';
+
+  // Build marks lookup
+  const marksLookup = {};
+  for (const m of subjectMarks) {
+    marksLookup[m.traineeId] = m;
+  }
 
   const wb = XLSX.utils.book_new();
+  const wsData = [];
 
-  // Build worksheet as array of arrays
-  // Each inner array = one row
-  // Columns: A(0) B(1) C(2) D(3) E(4) F(5) G(6) H(7) I(8) J(9) K(10)
+  // ROW 1: Report type
+  wsData.push([reportTitle, '', '', '', '', '', '', '', '', '', '', '']);
 
-  const rows = [];
+  // ROW 2: Internal Assessment
+  wsData.push(['Internal Assessment', '', '', '', '', '', '', '', '', '', '', '']);
 
-  // Row 1: Report type
-  rows.push([reportTitles[subjectType], '', '', '', '', '', '', '', '', '', '']);
+  // ROW 3: Subject title
+  wsData.push([subjectTitle, '', '', '', '', '', '', '', '', '', '', '']);
 
-  // Row 2: Internal Assessment
-  rows.push(['Internal Assessment', '', '', '', '', '', '', '', '', '', '']);
-
-  // Row 3: Subject title
-  rows.push([subjectTitles[subjectType], '', '', '', '', '', '', '', '', '', '']);
-
-  // Row 4: Assessor name + Year of Enrolment
-  rows.push([
+  // ROW 4: Assessor + Year
+  wsData.push([
     'Name & Adddress of the Assessor', '', '',
     instructorData.displayName || '',
     '', '',
     'Year of Enrolment', '', '', '',
     batchData.yearOfAssessment || '',
+    '',
   ]);
 
-  // Row 5: ITI name + Date of Assessment
-  rows.push([
+  // ROW 5: ITI + Date
+  wsData.push([
     'Name & Address of ITI (Govt/Pvt)', '', '',
     instructorData.itiName || '',
     '', '',
     'Date of Assessment', '', '', '',
     assessmentDate || '',
+    '',
   ]);
 
-  // Row 6: Industry address + Assessment Location
-  rows.push([
+  // ROW 6: Industry + Location
+  wsData.push([
     'Name & Address of the Industry', '', '',
     instructorData.address || '',
     '', '',
     'Assessment Location', '', '', '',
     instructorData.itiName || '',
+    '',
   ]);
 
-  // Row 7: Trade name + Duration + SEM
-  rows.push([
+  // ROW 7: Trade + Duration + SEM
+  wsData.push([
     'Trade Name', '',
     tradeData?.name || '',
     '', '', '',
     'Duration Of  Trade', '', '',
     tradeData ? `${tradeData.duration} Year` : '',
-    'SEM', half,
+    'SEM',
+    half,
   ]);
 
-  // Row 8: Learning Outcome + Batch No
-  rows.push([
+  // ROW 8: LO + Batch
+  wsData.push([
     'Learning Outcome :', '', '', '', '', '',
-    'Batch No.:', '', '', '',
+    'Batch NO', '', '', '',
     batchData.batchNumber || '',
     '',
   ]);
 
-  // Row 9: Column headers
-  rows.push([
+  // ROW 9: Column headers
+  wsData.push([
     'Roll No',
     'Name',
     '',
     'Attendance',
     'Speed for WC & Sc / Accuracy of ED / Comminacation skill fro ES',
-    'Creative Work (Chart , Model  ,Poster , Project work etc..)',
+    'Creative Work (Chart , Model\n,Poster , Project work etc..)',
     '',
     'Quarterly -1',
     'Quarterly -2',
@@ -173,34 +176,27 @@ export const generateSubjectReportExcel = (reportData, subjectType) => {
     'Sign of Trainee',
   ]);
 
-  // Row 10: Maximum marks
-  rows.push([
+  // ROW 10: Maximum marks
+  wsData.push([
     'Maximum Marks =>', '', '',
-    5,    // B - Attendance max
-    5,    // C - Speed max
-    10,   // D - Creative max
-    '',   // F - blank
-    20,   // G - Q1 max
-    20,   // H - Q2 max
-    60,   // I - Total max
-    '',   // J - converted
-    '',   // K - sign
+    5, 5, 10, '',
+    20, 20, 60,
+    '', '',
   ]);
 
-  // Row 11: Column letters
-  rows.push([
+  // ROW 11: Column letters
+  wsData.push([
     'A', '', '',
     'B', 'C', 'D',
-    '', 'E', 'F', 'G', 'H', 'I',
+    '',
+    'E', 'F', 'G', 'H', 'I',
   ]);
 
-  // Data rows — one per trainee
-  const traineeDistributions = [];
-
+  // DATA ROWS
   for (const trainee of trainees) {
-    const markEntry = subjectMarks.find(m => m.traineeId === trainee.id);
+    const markEntry = marksLookup[trainee.id];
 
-    let targetMark;
+    let targetMark = 0;
     if (markEntry) {
       if (subjectType === 'ES') targetMark = markEntry.totalESMarks || 0;
       else if (subjectType === 'WCS') targetMark = markEntry.totalWCSMarks || 0;
@@ -210,72 +206,59 @@ export const generateSubjectReportExcel = (reportData, subjectType) => {
     }
 
     const dist = distributeSubjectMarks(targetMark, isOutOf30);
-    traineeDistributions.push({ trainee, dist, targetMark });
 
-    // Format converted marks properly
-const convertedDisplay = isOutOf30
-  ? Math.round(dist.converted * 2) / 2  // Round to 0.5
-  : parseFloat(dist.converted.toFixed(2));
+    // Converted display — show exact decimal
+    const convertedDisplay = isOutOf30
+      ? dist.totalOutOf60 / 2
+      : parseFloat((dist.totalOutOf60 / 6).toFixed(10));
 
-rows.push([
-  trainee.enrollmentNumber || '',  // A - Roll No
-  trainee.name || '',              // B - Name
-  '',                              // C - blank
-  dist.b,                          // D - Attendance (0-5)
-  dist.c,                          // E - Speed (0-5)
-  dist.d,                          // F - Creative (0-10)
-  '',                              // G - blank
-  dist.e,                          // H - Q1 (0-20)
-  dist.f,                          // I - Q2 (0-20)
-  dist.totalOutOf60,               // J - Total (0-60)
-  convertedDisplay,                // K - Converted marks
-  '',                              // L - Sign
-]);
+    wsData.push([
+      trainee.enrollmentNumber || '',  // A - Roll No
+      trainee.name || '',              // B - Name
+      '',                              // C - blank
+      dist.b,                          // D - Attendance
+      dist.c,                          // E - Speed
+      dist.d,                          // F - Creative
+      '',                              // G - blank
+      dist.e,                          // H - Q1
+      dist.f,                          // I - Q2
+      dist.totalOutOf60,               // J - Total
+      convertedDisplay,                // K - Converted
+      '',                              // L - Sign
+    ]);
   }
 
   // Blank row
-  rows.push(['', '', '', '', '', '', '', '', '', '', '', '']);
+  wsData.push(['', '', '', '', '', '', '', '', '', '', '', '']);
 
   // Sign rows
-  rows.push([
-    '',
-    'Sign of SI :                                                                                                                            Sign of FI :',
-    '', '', '', '', '', '', '', '', '', '',
-  ]);
-  rows.push(['', instructorData.displayName || '', '', '', '', '', '', '', '', '', '', '']);
-  rows.push([
-    '', instructorData.itiName || '',
-    '', '', '', '', '',
-    instructorData.itiName || '',
-    '', '', '', '',
-  ]);
+  wsData.push(['', 'Sign of SI :                                                            Sign of FI :', '', '', '', '', '', '', '', '', '', '']);
+  wsData.push(['', instructorData.displayName || '', '', '', '', '', '', '', '', '', '', '']);
+  wsData.push(['', instructorData.itiName || '', '', '', '', '', '', '', '', '', '', '']);
 
-  // Create worksheet from array of arrays
-  const ws = XLSX.utils.aoa_to_sheet(rows);
+  // Create worksheet
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-  // Set column widths to match actual report
+  // Column widths matching actual report
   ws['!cols'] = [
     { wch: 14 },  // A - Roll No
-    { wch: 32 },  // B - Name
-    { wch: 4 },   // C - blank
-    { wch: 13 },  // D - Attendance
-    { wch: 28 },  // E - Speed/Accuracy
-    { wch: 28 },  // F - Creative Work
-    { wch: 4 },   // G - blank
-    { wch: 14 },  // H - Quarterly 1
-    { wch: 14 },  // I - Quarterly 2
+    { wch: 35 },  // B - Name
+    { wch: 3 },   // C - blank
+    { wch: 12 },  // D - Attendance
+    { wch: 28 },  // E - Speed
+    { wch: 28 },  // F - Creative
+    { wch: 3 },   // G - blank
+    { wch: 14 },  // H - Q1
+    { wch: 14 },  // I - Q2
     { wch: 10 },  // J - Total
     { wch: 36 },  // K - Converted
     { wch: 14 },  // L - Sign
   ];
 
-  // Set row heights
-  ws['!rows'] = rows.map(() => ({ hpt: 20 }));
-
   const sheetName = `${subjectType}_Report`;
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
-  return { wb, traineeDistributions };
+  return { wb };
 };
 
 /**
@@ -295,96 +278,118 @@ export const generateSubjectReportPDF = (reportData, subjectType) => {
 
   const isOutOf30 = !has5Subjects && subjectType === 'ES';
 
-  const subjectTitles = {
-    ES: 'INTERNAL ASSESSMENT FOR EMPLOYABILITY SKILLS',
-    WCS: 'INTERNAL ASSESSMENT FOR WORKSHOP CALCULATION & SCIENCE',
-    ED: 'INTERNAL ASSESSMENT FOR ENGINEERING DRAWING',
-  };
+  const subjectTitle = {
+    ES: 'FORMAT FOR INTERNAL ASSESSMENT FOR EMPLOYABILITY SKILLS',
+    WCS: 'FORMAT FOR INTERNAL ASSESSMENT FOR WORKSHOP CALCULATION & SCIENCE',
+    ED: 'FORMAT FOR INTERNAL ASSESSMENT FOR ENGINEERING DRAWING',
+  }[subjectType];
 
   const conversionLabel = isOutOf30
     ? 'Converted (/30)'
     : 'Converted (/10)';
 
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const marksLookup = {};
+  for (const m of subjectMarks) {
+    marksLookup[m.traineeId] = m;
+  }
+
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
 
   // Title
-  doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
-  doc.text(subjectType === 'ES' ? 'ANNEXURE-III (FAR-2)' : '(FAR-2)', 14, 12);
-  doc.text('Internal Assessment', 14, 18);
   doc.setFontSize(9);
-  doc.text(subjectTitles[subjectType], 14, 24);
+  doc.text(
+    subjectType === 'ES' ? 'ANNEXURE-III (FAR-2)' : '(FAR-2)',
+    14, 10
+  );
+  doc.setFontSize(8);
+  doc.text('Internal Assessment', 14, 15);
+  doc.text(subjectTitle, 14, 20);
 
   // Header info
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  const headerY = 30;
-  doc.text(`Assessor: ${instructorData.displayName || ''}`, 14, headerY);
-  doc.text(`Year of Enrolment: ${batchData.yearOfAssessment || ''}`, 120, headerY);
-  doc.text(`ITI: ${instructorData.itiName || ''}`, 14, headerY + 5);
-  doc.text(`Date of Assessment: ${assessmentDate || ''}`, 120, headerY + 5);
-  doc.text(`Address: ${instructorData.address || ''}`, 14, headerY + 10);
-  doc.text(`Assessment Location: ${instructorData.itiName || ''}`, 120, headerY + 10);
-  doc.text(`Trade: ${tradeData?.name || ''}`, 14, headerY + 15);
-  doc.text(`Duration: ${tradeData?.duration || ''} Year`, 120, headerY + 15);
-  doc.text(`SEM: ${half}`, 160, headerY + 15);
-  doc.text(`Batch No: ${batchData.batchNumber || ''}`, 14, headerY + 20);
+  doc.setFontSize(7);
+  doc.text(`Assessor: ${instructorData.displayName || ''}`, 14, 26);
+  doc.text(`Year of Enrolment: ${batchData.yearOfAssessment || ''}`, 120, 26);
+  doc.text(`ITI: ${instructorData.itiName || ''}`, 14, 31);
+  doc.text(`Date of Assessment: ${assessmentDate || ''}`, 120, 31);
+  doc.text(`Address: ${instructorData.address || ''}`, 14, 36);
+  doc.text(`Assessment Location: ${instructorData.itiName || ''}`, 120, 36);
+  doc.text(`Trade: ${tradeData?.name || ''}`, 14, 41);
+  doc.text(`Duration: ${tradeData?.duration || ''} Year`, 120, 41);
+  doc.text(`SEM: ${half}`, 170, 41);
+  doc.text(`Batch No: ${batchData.batchNumber || ''}`, 14, 46);
 
   // Table
-  const tableHead = [
-    ['Roll No', 'Name', 'Attend\n(0-5)', 'Speed\n(0-5)', 'Creative\n(0-10)', 'Q1\n(0-20)', 'Q2\n(0-20)', 'Total\n(0-60)', conversionLabel],
-  ];
+  const head = [[
+    'Roll No', 'Name',
+    'Attend\n(B/5)', 'Speed\n(C/5)', 'Creative\n(D/10)',
+    'Q1\n(E/20)', 'Q2\n(F/20)', 'Total\n(G/60)',
+    conversionLabel,
+  ]];
 
-  const tableBody = trainees.map(trainee => {
-    const markEntry = subjectMarks.find(m => m.traineeId === trainee.id);
-    let targetMark;
+  const body = trainees.map(trainee => {
+    const markEntry = marksLookup[trainee.id];
+    let targetMark = isOutOf30 ? 15 : 5;
     if (markEntry) {
-      if (subjectType === 'ES') targetMark = markEntry.totalESMarks || 0;
-      else if (subjectType === 'WCS') targetMark = markEntry.totalWCSMarks || 0;
-      else if (subjectType === 'ED') targetMark = markEntry.totalEDMarks || 0;
-    } else {
-      targetMark = isOutOf30 ? 15 : 5;
+      if (subjectType === 'ES') targetMark = markEntry.totalESMarks || targetMark;
+      else if (subjectType === 'WCS') targetMark = markEntry.totalWCSMarks || targetMark;
+      else if (subjectType === 'ED') targetMark = markEntry.totalEDMarks || targetMark;
     }
 
     const dist = distributeSubjectMarks(targetMark, isOutOf30);
+    const convertedDisplay = isOutOf30
+      ? dist.totalOutOf60 / 2
+      : parseFloat((dist.totalOutOf60 / 6).toFixed(4));
 
     return [
       trainee.enrollmentNumber || '',
       trainee.name || '',
-      dist.b,
-      dist.c,
-      dist.d,
-      dist.e,
-      dist.f,
+      dist.b, dist.c, dist.d,
+      dist.e, dist.f,
       dist.totalOutOf60,
-      isOutOf30 ? dist.converted : parseFloat(dist.converted.toFixed(2)),
+      convertedDisplay,
     ];
   });
 
   autoTable(doc, {
-    head: tableHead,
-    body: tableBody,
-    startY: headerY + 25,
-    styles: { fontSize: 7, cellPadding: 2 },
-    headStyles: { fillColor: [220, 220, 220], textColor: [0, 0, 0], fontStyle: 'bold' },
+    head,
+    body,
+    startY: 50,
+    styles: {
+      fontSize: 7,
+      cellPadding: 2,
+      halign: 'center',
+      valign: 'middle',
+      lineColor: [0, 0, 0],
+      lineWidth: 0.2,
+    },
+    headStyles: {
+      fillColor: [210, 225, 242],
+      textColor: [0, 0, 0],
+      fontStyle: 'bold',
+    },
     columnStyles: {
-      0: { cellWidth: 22 },
-      1: { cellWidth: 55 },
-      2: { cellWidth: 16 },
-      3: { cellWidth: 16 },
-      4: { cellWidth: 20 },
-      5: { cellWidth: 16 },
-      6: { cellWidth: 16 },
-      7: { cellWidth: 16 },
+      0: { cellWidth: 25, halign: 'left' },
+      1: { cellWidth: 60, halign: 'left' },
+      2: { cellWidth: 14 },
+      3: { cellWidth: 14 },
+      4: { cellWidth: 14 },
+      5: { cellWidth: 14 },
+      6: { cellWidth: 14 },
+      7: { cellWidth: 14 },
       8: { cellWidth: 22 },
     },
   });
 
-  // Sign line
-  const finalY = (doc.lastAutoTable?.finalY || 100) + 10;
+  const finalY = (doc.lastAutoTable?.finalY || 200) + 10;
   doc.setFontSize(8);
-  doc.text('Sign of SI :', 14, finalY);
-  doc.text('Sign of FI :', 100, finalY);
+  doc.text('Sign of SI:', 14, finalY);
+  doc.text('Sign of FI:', 100, finalY);
   doc.text(instructorData.displayName || '', 14, finalY + 6);
   doc.text(instructorData.itiName || '', 14, finalY + 12);
 

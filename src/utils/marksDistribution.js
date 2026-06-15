@@ -1,35 +1,40 @@
 /**
- * INSTRUCTOR MITRA — MARKS DISTRIBUTION ENGINE
- * Fixed 4-Level distribution with proper validation
+ * INSTRUCTOR MITRA — MARKS DISTRIBUTION ENGINE v2
+ * Fixed: sub-criteria sum always equals criteria total
+ * Fixed: criteria sum always equals practical mark
+ * Fixed: LO average always equals input mark
  */
 
-// ================================================
-// CORE HELPER: Distribute total across n items
-// Each item between min and max, sum = total exactly
-// ================================================
+// Random integer between min and max inclusive
+const randInt = (min, max) =>
+  Math.floor(Math.random() * (max - min + 1)) + min;
+
+/**
+ * Distribute 'total' across 'count' items
+ * Each item between min and max
+ * Sum of result = total EXACTLY
+ */
 const distributeExact = (total, count, min, max) => {
   if (count === 0) return [];
-  if (count === 1) return [Math.max(min, Math.min(max, total))];
+  if (count === 1) return [total];
 
-  // Validate feasibility
-  const feasibleMin = min * count;
-  const feasibleMax = max * count;
+  // Clamp total to feasible range
+  const feasMin = min * count;
+  const feasMax = max * count;
+  let t = Math.max(feasMin, Math.min(feasMax, total));
 
-  if (total < feasibleMin) total = feasibleMin;
-  if (total > feasibleMax) total = feasibleMax;
+  // Start with min for each
+  const result = new Array(count).fill(min);
+  let remaining = t - feasMin;
 
-  let result = new Array(count).fill(min);
-  let remaining = total - (min * count);
-
-  // Shuffle order for variation
-  const indices = Array.from({ length: count }, (_, i) => i);
-  for (let i = indices.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [indices[i], indices[j]] = [indices[j], indices[i]];
+  // Random order for variation
+  const order = Array.from({ length: count }, (_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = randInt(0, i);
+    [order[i], order[j]] = [order[j], order[i]];
   }
 
-  // Distribute remaining
-  for (const idx of indices) {
+  for (const idx of order) {
     if (remaining <= 0) break;
     const canAdd = max - result[idx];
     const add = Math.min(canAdd, remaining);
@@ -37,14 +42,15 @@ const distributeExact = (total, count, min, max) => {
     remaining -= add;
   }
 
-  // If still remaining (shouldn't happen but safety check)
-  if (remaining > 0) {
-    for (let i = 0; i < count && remaining > 0; i++) {
-      const canAdd = max - result[i];
-      if (canAdd > 0) {
-        const add = Math.min(canAdd, remaining);
-        result[i] += add;
-        remaining -= add;
+  // Safety: force fix if sum still wrong
+  let sum = result.reduce((a, b) => a + b, 0);
+  if (sum !== t) {
+    for (let i = 0; i < count && sum !== t; i++) {
+      const diff = t - sum;
+      const newVal = result[i] + diff;
+      if (newVal >= min && newVal <= max) {
+        result[i] = newVal;
+        sum = t;
       }
     }
   }
@@ -52,43 +58,32 @@ const distributeExact = (total, count, min, max) => {
   return result;
 };
 
-// ================================================
-// Distribute with minimum 1 per item (for criteria)
-// CRITICAL: Sum of result MUST equal total exactly
-// ================================================
+/**
+ * Distribute 'total' across items with max values
+ * Minimum 1 per item (unless total < count)
+ * Sum MUST equal total exactly
+ */
 const distributeMinOne = (total, maxValues) => {
   const count = maxValues.length;
   if (count === 0) return [];
+  if (total <= 0) return new Array(count).fill(0);
   if (count === 1) return [Math.min(total, maxValues[0])];
 
-  // Each item gets minimum 1
-  if (total <= 0) return new Array(count).fill(0);
-  if (total < count) {
-    // Not enough to give everyone 1
-    const result = new Array(count).fill(0);
-    let rem = total;
-    for (let i = 0; i < count && rem > 0; i++) {
-      result[i] = 1;
-      rem--;
-    }
-    return result;
+  // If total less than count, can't give everyone 1
+  const minPer = Math.min(1, Math.floor(total / count));
+  const result = new Array(count).fill(minPer);
+  let remaining = total - minPer * count;
+
+  // Random order for variation
+  const order = Array.from({ length: count }, (_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = randInt(0, i);
+    [order[i], order[j]] = [order[j], order[i]];
   }
 
-  // Start with 1 for each
-  let result = new Array(count).fill(1);
-  let remaining = total - count;
-
-  // Shuffle for variation
-  const indices = Array.from({ length: count }, (_, i) => i);
-  for (let i = indices.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [indices[i], indices[j]] = [indices[j], indices[i]];
-  }
-
-  // Add remaining marks respecting max values
-  for (const idx of indices) {
+  for (const idx of order) {
     if (remaining <= 0) break;
-    const canAdd = maxValues[idx] - result[idx]; // max - current
+    const canAdd = maxValues[idx] - result[idx];
     const add = Math.min(canAdd, remaining);
     if (add > 0) {
       result[idx] += add;
@@ -96,14 +91,17 @@ const distributeMinOne = (total, maxValues) => {
     }
   }
 
-  // CRITICAL VALIDATION: verify sum equals total
-  const currentSum = result.reduce((a, b) => a + b, 0);
-  if (currentSum !== total) {
-    // Force correction on first item that has room
-    const diff = total - currentSum;
+  // CRITICAL: Force fix sum to equal total
+  let sum = result.reduce((a, b) => a + b, 0);
+  if (sum !== total) {
+    const diff = total - sum;
+    // Try to add/subtract from first item with room
     for (let i = 0; i < count; i++) {
       const newVal = result[i] + diff;
       if (newVal >= 1 && newVal <= maxValues[i]) {
+        result[i] = newVal;
+        break;
+      } else if (newVal >= 0 && newVal <= maxValues[i]) {
         result[i] = newVal;
         break;
       }
@@ -113,64 +111,70 @@ const distributeMinOne = (total, maxValues) => {
   return result;
 };
 
-// ================================================
-// LEVEL 3 & 4: Distribute practical mark to criteria
-// and sub-criteria with GUARANTEED sum matching
-// ================================================
+/**
+ * LEVEL 3 & 4: Distribute practical mark to criteria and sub-criteria
+ * GUARANTEES: sum of criteria = practicalMark
+ *             sum of sub-criteria = criteria mark for each criteria
+ */
 const distributeToCriteria = (practicalMark, criteriaList) => {
   if (!criteriaList || criteriaList.length === 0) return [];
-  if (practicalMark <= 0) return criteriaList.map(c => ({
-    criteriaId: c.id,
-    criteriaName: c.name,
-    maxMarks: c.maxMarks,
-    allocatedMark: 0,
-    subCriteriaMarks: c.subCriteria.map(s => ({
-      subId: s.subId,
-      subName: s.name,
-      maxMarks: s.maxMarks,
+  if (practicalMark <= 0) {
+    return criteriaList.map(c => ({
+      criteriaId: c.id,
+      criteriaName: c.name,
+      maxMarks: c.maxMarks,
       allocatedMark: 0,
-    })),
-  }));
+      subCriteriaMarks: c.subCriteria.map(s => ({
+        subId: s.subId,
+        subName: s.name,
+        maxMarks: s.maxMarks,
+        allocatedMark: 0,
+      })),
+    }));
+  }
 
-  const count = criteriaList.length;
-  const maxMarks = criteriaList.map(c => c.maxMarks);
-  const totalMax = maxMarks.reduce((a, b) => a + b, 0);
-
-  // Scale practical mark if needed
+  const maxValues = criteriaList.map(c => c.maxMarks);
+  const totalMax = maxValues.reduce((a, b) => a + b, 0);
   const scaledMark = Math.min(practicalMark, totalMax);
 
-  // Distribute marks to criteria using min=1
-  const criteriaAllocations = distributeMinOne(scaledMark, maxMarks);
+  // Distribute to criteria
+  const criteriaAlloc = distributeMinOne(scaledMark, maxValues);
 
-  // VALIDATE criteria sum
-  const criteriaSum = criteriaAllocations.reduce((a, b) => a + b, 0);
+  // Verify criteria sum
+  const criteriaSum = criteriaAlloc.reduce((a, b) => a + b, 0);
   if (criteriaSum !== scaledMark) {
-    // Force fix
     const diff = scaledMark - criteriaSum;
-    criteriaAllocations[0] += diff;
+    for (let i = 0; i < criteriaAlloc.length; i++) {
+      const newVal = criteriaAlloc[i] + diff;
+      if (newVal >= 0 && newVal <= maxValues[i]) {
+        criteriaAlloc[i] = newVal;
+        break;
+      }
+    }
   }
 
   return criteriaList.map((criteria, idx) => {
-    const allocatedMark = criteriaAllocations[idx];
+    const allocatedMark = criteriaAlloc[idx];
+    const subMaxValues = criteria.subCriteria.map(s => s.maxMarks);
 
-    // LEVEL 4: Distribute criteria mark to sub-criteria
-    const subMaxMarks = criteria.subCriteria.map(s => s.maxMarks);
-    const subAllocations = distributeMinOne(allocatedMark, subMaxMarks);
+    // Distribute to sub-criteria
+    const subAlloc = distributeMinOne(allocatedMark, subMaxValues);
 
-    // VALIDATE sub-criteria sum matches criteria mark
-    const subSum = subAllocations.reduce((a, b) => a + b, 0);
+    // CRITICAL: Verify sub-criteria sum equals criteria mark
+    let subSum = subAlloc.reduce((a, b) => a + b, 0);
     if (subSum !== allocatedMark) {
-      // Force fix on first sub that has room
       const diff = allocatedMark - subSum;
-      for (let i = 0; i < subAllocations.length; i++) {
-        const newVal = subAllocations[i] + diff;
-        if (newVal >= 1 && newVal <= subMaxMarks[i]) {
-          subAllocations[i] = newVal;
-          break;
-        } else if (newVal >= 1) {
-          subAllocations[i] = newVal;
+      for (let i = 0; i < subAlloc.length; i++) {
+        const newVal = subAlloc[i] + diff;
+        if (newVal >= 0 && newVal <= subMaxValues[i]) {
+          subAlloc[i] = newVal;
+          subSum = allocatedMark;
           break;
         }
+      }
+      // Last resort: force on index 0
+      if (subSum !== allocatedMark) {
+        subAlloc[0] += (allocatedMark - subSum);
       }
     }
 
@@ -183,15 +187,15 @@ const distributeToCriteria = (practicalMark, criteriaList) => {
         subId: sub.subId,
         subName: sub.name,
         maxMarks: sub.maxMarks,
-        allocatedMark: subAllocations[sIdx],
+        allocatedMark: subAlloc[sIdx],
       })),
     };
   });
 };
 
-// ================================================
-// LEVEL 1 & 2: Main distribution function
-// ================================================
+/**
+ * MAIN: Distribute marks for one trainee
+ */
 export const distributeMarks = (inputMark, los, criteriaList, half) => {
   const LO_MIN = 61;
   const LO_MAX = 95;
@@ -200,25 +204,20 @@ export const distributeMarks = (inputMark, los, criteriaList, half) => {
     return { inputMark, loDistribution: [], error: 'No LOs found' };
   }
 
-  // Adjust range based on input
   const effectiveMin = inputMark < LO_MIN ? Math.max(0, inputMark - 5) : LO_MIN;
   const effectiveMax = inputMark > LO_MAX ? Math.min(100, inputMark + 5) : LO_MAX;
 
   const loCount = los.length;
 
-  // LEVEL 1: Distribute input mark across LOs
-  // Average of LO marks must equal inputMark exactly
+  // LEVEL 1: Distribute inputMark across LOs
+  // Average of all LO marks must equal inputMark
   const loTotal = inputMark * loCount;
   const loMarks = distributeExact(loTotal, loCount, effectiveMin, effectiveMax);
 
-  // Verify LO average
+  // Verify and fix LO total
   const loSum = loMarks.reduce((a, b) => a + b, 0);
-  const loAvg = loSum / loCount;
-
-  // Fix if average doesn't match (floating point issues)
-  if (Math.round(loAvg) !== inputMark) {
-    const diff = (inputMark * loCount) - loSum;
-    loMarks[0] += diff;
+  if (loSum !== loTotal) {
+    loMarks[0] += (loTotal - loSum);
   }
 
   const loDistribution = los.map((lo, loIdx) => {
@@ -236,35 +235,31 @@ export const distributeMarks = (inputMark, los, criteriaList, half) => {
       };
     }
 
-    // LEVEL 2: Distribute LO mark across practicals
-    // Average of practical marks must equal loMark exactly
+    // LEVEL 2: Distribute loMark across practicals
+    // Average of all practicals must equal loMark
     const practicalTotal = loMark * practicalCount;
     const practicalMarks = distributeExact(
-      practicalTotal,
-      practicalCount,
-      effectiveMin,
-      effectiveMax
+      practicalTotal, practicalCount, effectiveMin, effectiveMax
     );
 
-    // Verify practical average
+    // Verify practical total
     const practicalSum = practicalMarks.reduce((a, b) => a + b, 0);
     if (practicalSum !== practicalTotal) {
-      const diff = practicalTotal - practicalSum;
-      practicalMarks[0] += diff;
+      practicalMarks[0] += (practicalTotal - practicalSum);
     }
 
     const practicalDistribution = practicals.map((practical, pIdx) => {
       const practicalMark = practicalMarks[pIdx];
 
-      // LEVEL 3 & 4: Distribute to criteria and sub-criteria
+      // LEVELS 3 & 4: Criteria and sub-criteria
       const criteriaMarks = distributeToCriteria(practicalMark, criteriaList);
 
-      // FINAL VALIDATION: criteria sum must equal practicalMark
-      const criteriaTotal = criteriaMarks.reduce((sum, c) => sum + c.allocatedMark, 0);
-      if (criteriaTotal !== practicalMark && criteriaMarks.length > 0) {
-        const diff = practicalMark - criteriaTotal;
+      // Final check: criteria sum must equal practicalMark
+      const cSum = criteriaMarks.reduce((s, c) => s + c.allocatedMark, 0);
+      if (cSum !== practicalMark && criteriaMarks.length > 0) {
+        const diff = practicalMark - cSum;
         criteriaMarks[0].allocatedMark += diff;
-        // Also fix sub-criteria of first criteria
+        // Fix sub-criteria of first criteria
         if (criteriaMarks[0].subCriteriaMarks.length > 0) {
           criteriaMarks[0].subCriteriaMarks[0].allocatedMark += diff;
         }
@@ -290,57 +285,48 @@ export const distributeMarks = (inputMark, los, criteriaList, half) => {
     };
   });
 
-  return {
-    inputMark,
-    loDistribution,
-    error: null,
-  };
+  return { inputMark, loDistribution, error: null };
 };
 
-// ================================================
-// CONVERT TP MARKS (out of 70 to out of 100)
-// ================================================
-export const convertTPMarks = (tpMarksOutOf70) => {
-  return Math.round((tpMarksOutOf70 / 70) * 100);
-};
+export const convertTPMarks = (tpMarksOutOf70) =>
+  Math.round((tpMarksOutOf70 / 70) * 100);
 
-// ================================================
-// DISTRIBUTE SUBJECT MARKS (ES, ED, WCS)
-// ================================================
 export const distributeSubjectMarks = (totalMark, tpMarks, subjects) => {
   const hasED = subjects.includes('ED');
   const hasWCS = subjects.includes('WCS');
   const hasES = subjects.includes('ES');
 
   if (!hasED && !hasWCS) {
-    // 3 subject trade: ES = total - TP
-    const esMarks = Math.max(0, Math.min(30, totalMark - tpMarks));
-    return { esMarks, edMarks: null, wcsMarks: null };
+    return {
+      esMarks: Math.max(0, Math.min(30, totalMark - tpMarks)),
+      edMarks: null,
+      wcsMarks: null,
+    };
   }
 
   if (hasED && hasWCS && hasES) {
-    // 5 subject trade: ES + ED + WCS = total - TP (out of 30)
     const remaining = totalMark - tpMarks;
-
     let esM, edM, wcsM;
     let attempts = 0;
 
     while (attempts < 500) {
-      esM = Math.floor(Math.random() * 6) + 4; // 4-9
-      edM = Math.floor(Math.random() * 6) + 4; // 4-9
+      esM = randInt(4, 9);
+      edM = randInt(4, 9);
       wcsM = remaining - esM - edM;
-      if (wcsM >= 4 && wcsM <= 9 && esM !== edM && edM !== wcsM && esM !== wcsM) break;
+      if (
+        wcsM >= 4 && wcsM <= 9 &&
+        esM !== edM && edM !== wcsM && esM !== wcsM
+      ) break;
       attempts++;
     }
 
     if (attempts >= 500) {
-      // Fallback
       esM = Math.round(remaining / 3);
       edM = Math.round(remaining / 3);
       wcsM = remaining - esM - edM;
       esM = Math.max(4, Math.min(9, esM));
       edM = Math.max(4, Math.min(9, edM));
-      wcsM = Math.max(4, Math.min(9, wcsM));
+      wcsM = Math.max(4, Math.min(9, remaining - esM - edM));
     }
 
     return { esMarks: esM, edMarks: edM, wcsMarks: wcsM };
@@ -349,29 +335,17 @@ export const distributeSubjectMarks = (totalMark, tpMarks, subjects) => {
   return { esMarks: null, edMarks: null, wcsMarks: null };
 };
 
-// ================================================
-// MAIN: Distribute marks for ALL trainees
-// ================================================
 export const distributeAllTrainees = (
-  traineeMarks,
-  los,
-  criteriaList,
-  half,
-  entryType,
-  subjects
+  traineeMarks, los, criteriaList, half, entryType, subjects
 ) => {
   const results = [];
 
   for (const trainee of traineeMarks) {
-    let tpMark100;
-
     if (entryType === 'case1') {
       const inputMark = trainee.inputMark || 0;
       const tpMarks70 = Math.round((inputMark / 100) * 70);
-      tpMark100 = inputMark;
-
       const subjectDist = distributeSubjectMarks(inputMark, tpMarks70, subjects);
-      const tpDist = distributeMarks(tpMark100, los, criteriaList, half);
+      const tpDist = distributeMarks(inputMark, los, criteriaList, half);
 
       results.push({
         traineeId: trainee.traineeId,
@@ -388,10 +362,8 @@ export const distributeAllTrainees = (
       });
 
     } else {
-      // Case 2: subject-wise marks
       const tpMarks70 = trainee.tpMarks || 0;
-      tpMark100 = convertTPMarks(tpMarks70);
-
+      const tpMark100 = convertTPMarks(tpMarks70);
       const totalMarks = tpMarks70 +
         (trainee.esMarks || 0) +
         (trainee.edMarks || 0) +
