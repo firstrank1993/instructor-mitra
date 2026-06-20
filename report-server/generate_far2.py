@@ -3,10 +3,15 @@ import json
 import random
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 def thin_border():
     t = Side(style='thin')
     return Border(left=t, right=t, top=t, bottom=t)
+
+def medium_border():
+    m = Side(style='medium')
+    return Border(left=m, right=m, top=m, bottom=m)
 
 def rand_int(a, b):
     return random.randint(a, b)
@@ -52,22 +57,15 @@ def distribute_marks(target_mark, is_out_of_30):
     total_60 = b + c + d + e + f
     return b, c, d, e, f, total_60
 
-def apply_label_style(cell, value, bold=True):
-    cell.value = value
-    cell.font = Font(name='Calibri', size=11, bold=bold)
-    cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=False)
 
-def apply_header_style(cell, value):
+def style(cell, value='', bold=False, size=11, h='left', v='center',
+          wrap=False, border=False):
     cell.value = value
-    cell.font = Font(name='Calibri', size=10, bold=True)
-    cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    cell.border = thin_border()
+    cell.font = Font(name='Calibri', size=size, bold=bold)
+    cell.alignment = Alignment(horizontal=h, vertical=v, wrap_text=wrap)
+    if border:
+        cell.border = thin_border()
 
-def apply_data_style(cell, value, h_align='center'):
-    cell.value = value
-    cell.font = Font(name='Calibri', size=10, bold=False)
-    cell.alignment = Alignment(horizontal=h_align, vertical='center', wrap_text=True)
-    cell.border = thin_border()
 
 def generate_subject_report(data, output_path):
     subject_type = data.get('subjectType', 'ES')
@@ -93,11 +91,10 @@ def generate_subject_report(data, output_path):
         'ED': 'FORMAT FOR INTERNAL ASSESSMENT FOR ENGINEERING DRAWING',
     }
     convert_label = (
-        'Convert Total Marks in  to 30 Markes =\n{(Col.G)/2}'
+        f'Convert Total Marks in  to 30 Markes =\n{{(Col.G)/2}}'
         if is_out_of_30
-        else 'Convert Total Marks in  to 10 Markes =\n{(Col.G)/6}'
+        else f'Convert Total Marks in  to 10 Markes =\n{{(Col.G)/6}}'
     )
-    formula_suffix = '/2' if is_out_of_30 else '/6'
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -108,140 +105,140 @@ def generate_subject_report(data, output_path):
     ws.page_setup.fitToPage = True
     ws.page_setup.fitToWidth = 1
 
-    # Column widths (exact match)
-    ws.column_dimensions['A'].width = 4.8
-    ws.column_dimensions['B'].width = 20.0
-    ws.column_dimensions['C'].width = 23.7
-    ws.column_dimensions['D'].width = 7.8
-    ws.column_dimensions['E'].width = 15.2
-    ws.column_dimensions['F'].width = 7.5
-    ws.column_dimensions['G'].width = 8.0
-    ws.column_dimensions['H'].width = 7.3
-    ws.column_dimensions['I'].width = 8.0
-    ws.column_dimensions['J'].width = 8.0
-    ws.column_dimensions['K'].width = 15.2
-    ws.column_dimensions['L'].width = 8.2
+    # Exact column widths from actual report
+    widths = {1: 4.83, 2: 20.0, 3: 23.66, 4: 7.83, 5: 15.16,
+              6: 7.5, 7: 8.0, 8: 7.33, 9: 8.0, 10: 8.43, 11: 15.16, 12: 8.16}
+    for idx, w in widths.items():
+        ws.column_dimensions[get_column_letter(idx)].width = w
 
-    # Row 1: Report type (merged A1:L1)
-    ws.row_dimensions[1].height = 17.9
+    # Outer border: every used cell gets a border drawn manually at the end
+    # ROW 1: report title (A1:L1)
+    ws.row_dimensions[1].height = 17.85
     ws.merge_cells('A1:L1')
-    apply_label_style(ws.cell(row=1, column=1, value=title_map[subject_type]), title_map[subject_type], bold=True)
-    ws.cell(row=1, column=1).font = Font(name='Calibri', size=14, bold=True)
-    ws.cell(row=1, column=1).alignment = Alignment(horizontal='center', vertical='center')
+    style(ws.cell(row=1, column=1), title_map[subject_type], bold=True, size=14, h='center')
 
-    # Row 2: Internal Assessment (merged A2:L2)
+    # ROW 2: Internal Assessment (A2:L2)
     ws.row_dimensions[2].height = 18
     ws.merge_cells('A2:L2')
-    c = ws.cell(row=2, column=1, value='Internal Assessment')
-    c.font = Font(name='Calibri', size=12, bold=True)
-    c.alignment = Alignment(horizontal='center', vertical='center')
+    style(ws.cell(row=2, column=1), 'Internal Assessment', bold=True, size=12, h='center')
 
-    # Row 3: Subject title (merged A3:L3)
+    # ROW 3: subject title (A3:L3)
     ws.row_dimensions[3].height = 18
     ws.merge_cells('A3:L3')
-    c = ws.cell(row=3, column=1, value=subject_title_map[subject_type])
-    c.font = Font(name='Calibri', size=10, bold=True)
-    c.alignment = Alignment(horizontal='center', vertical='center')
+    style(ws.cell(row=3, column=1), subject_title_map[subject_type], bold=True, size=10, h='center')
 
-    # Row 4: Assessor + Year (merged A4:C4, D4:F4, G4:J4, K4:L4)
+    # ROW 4: Assessor / Year of Enrolment
     ws.row_dimensions[4].height = 18
     ws.merge_cells('A4:C4')
-    apply_label_style(ws.cell(row=4, column=1), 'Name & Adddress of the Assessor')
+    style(ws.cell(row=4, column=1), 'Name & Adddress of the Assessor')
     ws.merge_cells('D4:F4')
-    apply_label_style(ws.cell(row=4, column=4), instructor.get('displayName', ''), bold=False)
+    style(ws.cell(row=4, column=4), instructor.get('displayName', ''), bold=True)
     ws.merge_cells('G4:J4')
-    apply_label_style(ws.cell(row=4, column=7), 'Year of Enrolment')
+    style(ws.cell(row=4, column=7), 'Year of Enrolment')
     ws.merge_cells('K4:L4')
-    apply_label_style(ws.cell(row=4, column=11), batch.get('yearOfAssessment', ''), bold=False)
+    style(ws.cell(row=4, column=11), batch.get('yearOfAssessment', ''), bold=True)
 
-    # Row 5: ITI + Date (merged A5:C5, D5:F5, G5:J5, K5:L5)
+    # ROW 5: ITI / Date of Assessment
     ws.row_dimensions[5].height = 18
     ws.merge_cells('A5:C5')
-    apply_label_style(ws.cell(row=5, column=1), 'Name & Address of ITI (Govt/Pvt)')
+    style(ws.cell(row=5, column=1), 'Name & Address of ITI (Govt/Pvt)')
     ws.merge_cells('D5:F5')
-    apply_label_style(ws.cell(row=5, column=4), instructor.get('itiName', ''), bold=False)
+    style(ws.cell(row=5, column=4), instructor.get('itiName', ''), bold=True)
     ws.merge_cells('G5:J5')
-    apply_label_style(ws.cell(row=5, column=7), 'Date of Assessment')
+    style(ws.cell(row=5, column=7), 'Date of Assessment')
     ws.merge_cells('K5:L5')
-    apply_label_style(ws.cell(row=5, column=11), assessment_date, bold=False)
+    style(ws.cell(row=5, column=11), assessment_date, bold=True)
 
-    # Row 6: Industry + Location (merged A6:C6, D6:F6, G6:J6, K6:L6)
+    # ROW 6: Industry / Assessment Location
     ws.row_dimensions[6].height = 18
     ws.merge_cells('A6:C6')
-    apply_label_style(ws.cell(row=6, column=1), 'Name & Address of the Industry')
+    style(ws.cell(row=6, column=1), 'Name & Address of the Industry')
     ws.merge_cells('D6:F6')
-    apply_label_style(ws.cell(row=6, column=4), instructor.get('address', ''), bold=False)
+    style(ws.cell(row=6, column=4), instructor.get('address', ''), bold=True)
     ws.merge_cells('G6:J6')
-    apply_label_style(ws.cell(row=6, column=7), 'Assessment Location')
+    style(ws.cell(row=6, column=7), 'Assessment Location')
     ws.merge_cells('K6:L6')
-    apply_label_style(ws.cell(row=6, column=11), instructor.get('itiName', ''), bold=False)
+    style(ws.cell(row=6, column=11), instructor.get('itiName', ''), bold=True)
 
-    # Row 7: Trade + Duration + SEM (merged A7:B7, C7:F7, G7:I7, K7 single)
+    # ROW 7: Trade Name / Duration / SEM
     ws.row_dimensions[7].height = 24
     ws.merge_cells('A7:B7')
-    apply_label_style(ws.cell(row=7, column=1), 'Trade Name')
+    style(ws.cell(row=7, column=1), 'Trade Name')
     ws.merge_cells('C7:F7')
-    apply_label_style(ws.cell(row=7, column=3), trade.get('name', ''), bold=False)
+    style(ws.cell(row=7, column=3), trade.get('name', ''), bold=True, h='center')
     ws.merge_cells('G7:I7')
-    apply_label_style(ws.cell(row=7, column=7), 'Duration Of  Trade')
+    style(ws.cell(row=7, column=7), 'Duration Of  Trade')
     duration = trade.get('duration', 1)
-    apply_label_style(ws.cell(row=7, column=10), f"{duration} Year", bold=False)
-    apply_label_style(ws.cell(row=7, column=11), 'SEM')
-    apply_label_style(ws.cell(row=7, column=12), half, bold=False)
+    style(ws.cell(row=7, column=10), f"{duration} Year", bold=True)
+    style(ws.cell(row=7, column=11), 'SEM')
+    style(ws.cell(row=7, column=12), half, bold=True)
 
-    # Row 8: LO + Batch (merged A8:F8, G8:J8, K8:L8)
+    # ROW 8: Learning Outcome / Batch NO
     ws.row_dimensions[8].height = 18
     ws.merge_cells('A8:F8')
-    apply_label_style(ws.cell(row=8, column=1), 'Learning Outcome :')
+    style(ws.cell(row=8, column=1), 'Learning Outcome :')
     ws.merge_cells('G8:J8')
-    apply_label_style(ws.cell(row=8, column=7), 'Batch NO')
+    style(ws.cell(row=8, column=7), 'Batch NO')
     ws.merge_cells('K8:L8')
-    apply_label_style(ws.cell(row=8, column=11), batch.get('batchNumber', ''), bold=False)
+    style(ws.cell(row=8, column=11), batch.get('batchNumber', ''), bold=True)
 
-    # Row 9: Column headers (merged B9:C9, F9:G9)
+    # ROW 9: Column headers
     ws.row_dimensions[9].height = 63.6
-    apply_header_style(ws.cell(row=9, column=1), 'Roll No')
+    style(ws.cell(row=9, column=1), 'Roll\nNo', bold=True, h='left', wrap=True, border=True)
     ws.merge_cells('B9:C9')
-    apply_header_style(ws.cell(row=9, column=2), 'Name')
-    apply_header_style(ws.cell(row=9, column=4), 'Attendance')
-    apply_header_style(ws.cell(row=9, column=5), 'Speed for WC & Sc / Accuracy of ED / Comminacation skill fro ES')
+    style(ws.cell(row=9, column=2), 'Name', bold=True, h='center', border=True)
+    style(ws.cell(row=9, column=3), '', border=True)
+    style(ws.cell(row=9, column=4), 'Attendance', bold=True, h='center', v='center', wrap=True, border=True)
+    style(ws.cell(row=9, column=5),
+          'Speed for WC & Sc\n/ Accuracy of ED /\nComminacation\nskill fro ES',
+          bold=True, h='center', wrap=True, border=True)
     ws.merge_cells('F9:G9')
-    apply_header_style(ws.cell(row=9, column=6), 'Creative Work (Chart , Model\n,Poster , Project work etc..)')
-    apply_header_style(ws.cell(row=9, column=8), 'Quarterly -1')
-    apply_header_style(ws.cell(row=9, column=9), 'Quarterly -2')
-    apply_header_style(ws.cell(row=9, column=10), 'Total')
-    apply_header_style(ws.cell(row=9, column=11), convert_label)
-    apply_header_style(ws.cell(row=9, column=12), 'Sign of Trainee')
+    style(ws.cell(row=9, column=6),
+          'Creative Work\n(Chart , Model\n,Poster , Project\nwork etc..)',
+          bold=True, h='center', wrap=True, border=True)
+    style(ws.cell(row=9, column=7), '', border=True)
+    style(ws.cell(row=9, column=8), 'Quarterly -1', bold=True, h='center', wrap=True, border=True)
+    style(ws.cell(row=9, column=9), 'Quarterly -2', bold=True, h='center', wrap=True, border=True)
+    style(ws.cell(row=9, column=10), 'Total', bold=True, h='center', wrap=True, border=True)
+    style(ws.cell(row=9, column=11), convert_label, bold=True, h='center', wrap=True, border=True)
+    style(ws.cell(row=9, column=12), 'Sign of\nTrainee', bold=True, h='center', wrap=True, border=True)
 
-    # Row 10: Maximum marks (merged F10:G10)
+    # ROW 10: Maximum Marks
     ws.row_dimensions[10].height = 18
-    apply_header_style(ws.cell(row=10, column=1), 'Maximum Marks =>')
-    ws.cell(row=10, column=1).alignment = Alignment(horizontal='left', vertical='center')
-    apply_header_style(ws.cell(row=10, column=4), 5)
-    apply_header_style(ws.cell(row=10, column=5), 5)
+    style(ws.cell(row=10, column=1), 'Maximum Marks =>', bold=True, border=True)
+    ws.merge_cells('B10:C10')
+    style(ws.cell(row=10, column=2), '', border=True)
+    style(ws.cell(row=10, column=3), '', border=True)
+    style(ws.cell(row=10, column=4), 5, bold=True, h='center', border=True)
+    style(ws.cell(row=10, column=5), 5, bold=True, h='center', border=True)
     ws.merge_cells('F10:G10')
-    apply_header_style(ws.cell(row=10, column=6), 10)
-    apply_header_style(ws.cell(row=10, column=8), 20)
-    apply_header_style(ws.cell(row=10, column=9), 20)
-    apply_header_style(ws.cell(row=10, column=10), 60)
+    style(ws.cell(row=10, column=6), 10, bold=True, h='center', border=True)
+    style(ws.cell(row=10, column=7), '', border=True)
+    style(ws.cell(row=10, column=8), 20, bold=True, h='center', border=True)
+    style(ws.cell(row=10, column=9), 20, bold=True, h='center', border=True)
+    style(ws.cell(row=10, column=10), 60, bold=True, h='center', border=True)
+    style(ws.cell(row=10, column=11), '', border=True)
+    style(ws.cell(row=10, column=12), '', border=True)
 
-    # Row 11: Column letters (merged F11:G11)
+    # ROW 11: Column letters
     ws.row_dimensions[11].height = 18
-    apply_header_style(ws.cell(row=11, column=1), 'A')
-    apply_header_style(ws.cell(row=11, column=4), 'B')
-    apply_header_style(ws.cell(row=11, column=5), 'C')
+    style(ws.cell(row=11, column=1), 'A', bold=True, h='center', border=True)
+    ws.merge_cells('B11:C11')
+    style(ws.cell(row=11, column=2), '', border=True)
+    style(ws.cell(row=11, column=3), '', border=True)
+    style(ws.cell(row=11, column=4), 'B', bold=True, h='center', border=True)
+    style(ws.cell(row=11, column=5), 'C', bold=True, h='center', border=True)
     ws.merge_cells('F11:G11')
-    apply_header_style(ws.cell(row=11, column=6), 'D')
-    apply_header_style(ws.cell(row=11, column=8), 'E')
-    apply_header_style(ws.cell(row=11, column=9), 'F')
-    apply_header_style(ws.cell(row=11, column=10), 'G')
-    apply_header_style(ws.cell(row=11, column=11), 'H')
-    apply_header_style(ws.cell(row=11, column=12), 'I')
+    style(ws.cell(row=11, column=6), 'D', bold=True, h='center', border=True)
+    style(ws.cell(row=11, column=7), '', border=True)
+    style(ws.cell(row=11, column=8), 'E', bold=True, h='center', border=True)
+    style(ws.cell(row=11, column=9), 'F', bold=True, h='center', border=True)
+    style(ws.cell(row=11, column=10), 'G', bold=True, h='center', border=True)
+    style(ws.cell(row=11, column=11), 'H', bold=True, h='center', border=True)
+    style(ws.cell(row=11, column=12), 'I', bold=True, h='center', border=True)
 
-    # Marks lookup
+    # DATA ROWS
     marks_lookup = {m['traineeId']: m for m in subject_marks}
-
-    # Data rows starting row 12, merged B:C and F:G per row
     current_row = 12
     for trainee in trainees:
         ws.row_dimensions[current_row].height = 18
@@ -256,62 +253,80 @@ def generate_subject_report(data, output_path):
 
         b, c, d, e, f, total_60 = distribute_marks(target, is_out_of_30)
 
-        apply_data_style(ws.cell(row=current_row, column=1), trainee.get('rollNumber') or trainee.get('enrollmentNumber', ''))
+        style(ws.cell(row=current_row, column=1),
+              trainee.get('rollNumber') or trainee.get('enrollmentNumber', ''),
+              h='left', border=True)
 
         ws.merge_cells(start_row=current_row, start_column=2, end_row=current_row, end_column=3)
-        apply_data_style(ws.cell(row=current_row, column=2), trainee.get('name', ''), h_align='left')
-        apply_data_style(ws.cell(row=current_row, column=3), '', h_align='left')
+        style(ws.cell(row=current_row, column=2), trainee.get('name', ''), h='left', border=True)
+        style(ws.cell(row=current_row, column=3), '', border=True)
 
-        apply_data_style(ws.cell(row=current_row, column=4), b)
-        apply_data_style(ws.cell(row=current_row, column=5), c)
+        style(ws.cell(row=current_row, column=4), b, h='center', border=True)
+        style(ws.cell(row=current_row, column=5), c, h='center', border=True)
 
         ws.merge_cells(start_row=current_row, start_column=6, end_row=current_row, end_column=7)
-        apply_data_style(ws.cell(row=current_row, column=6), d)
-        apply_data_style(ws.cell(row=current_row, column=7), '')
+        style(ws.cell(row=current_row, column=6), d, h='center', border=True)
+        style(ws.cell(row=current_row, column=7), '', border=True)
 
-        apply_data_style(ws.cell(row=current_row, column=8), e)
-        apply_data_style(ws.cell(row=current_row, column=9), f)
+        style(ws.cell(row=current_row, column=8), e, h='center', border=True)
+        style(ws.cell(row=current_row, column=9), f, h='center', border=True)
 
-        # Total formula =SUM(D{row}:I{row})
         total_cell = ws.cell(row=current_row, column=10)
         total_cell.value = f"=SUM(D{current_row}:I{current_row})"
-        total_cell.font = Font(name='Calibri', size=10)
+        total_cell.font = Font(name='Calibri', size=11)
         total_cell.alignment = Alignment(horizontal='center', vertical='center')
         total_cell.border = thin_border()
 
-        # Converted formula =J{row}/2 or /6
+        formula_suffix = '/2' if is_out_of_30 else '/6'
         conv_cell = ws.cell(row=current_row, column=11)
         conv_cell.value = f"=J{current_row}{formula_suffix}"
-        conv_cell.font = Font(name='Calibri', size=10)
+        conv_cell.font = Font(name='Calibri', size=11)
         conv_cell.alignment = Alignment(horizontal='center', vertical='center')
         conv_cell.border = thin_border()
 
-        apply_data_style(ws.cell(row=current_row, column=12), '')
+        style(ws.cell(row=current_row, column=12), '', border=True)
 
         current_row += 1
 
-    # Blank row
+    # Blank row before sign section
     current_row += 1
 
-    # Sign rows (merged B:K for sign of SI/FI line)
+    # Sign of SI / Sign of FI line (merged B:K)
     ws.merge_cells(start_row=current_row, start_column=2, end_row=current_row, end_column=11)
-    c = ws.cell(row=current_row, column=2,
-                value='Sign of SI :                                                            Sign of FI :')
-    c.font = Font(name='Calibri', size=10)
-    c.alignment = Alignment(horizontal='left', vertical='center')
+    style(ws.cell(row=current_row, column=2),
+          'Sign of SI :                                                            Sign of FI :')
     current_row += 1
 
-    c = ws.cell(row=current_row, column=2, value=instructor.get('displayName', ''))
-    c.font = Font(name='Calibri', size=10, bold=True)
+    style(ws.cell(row=current_row, column=2), instructor.get('displayName', ''), bold=True)
     current_row += 1
 
-    c = ws.cell(row=current_row, column=2, value=instructor.get('itiName', ''))
-    c.font = Font(name='Calibri', size=10)
-    c2 = ws.cell(row=current_row, column=8, value=instructor.get('itiName', ''))
-    c2.font = Font(name='Calibri', size=10)
+    style(ws.cell(row=current_row, column=2), instructor.get('itiName', ''))
+    style(ws.cell(row=current_row, column=8), instructor.get('itiName', ''))
+
+    # Add thin outer border box around entire used range A1:L(last data area incl sign block)
+    last_row = current_row
+    thin = Side(style='thin')
+    for r in range(1, last_row + 1):
+        left_cell = ws.cell(row=r, column=1)
+        right_cell = ws.cell(row=r, column=12)
+        if r == 1:
+            for cidx in range(1, 13):
+                cc = ws.cell(row=r, column=cidx)
+                cc.border = Border(top=thin, left=thin if cidx == 1 else cc.border.left,
+                                    right=thin if cidx == 12 else cc.border.right,
+                                    bottom=cc.border.bottom)
+        if r == last_row:
+            for cidx in range(1, 13):
+                cc = ws.cell(row=r, column=cidx)
+                cc.border = Border(bottom=thin, left=cc.border.left, right=cc.border.right, top=cc.border.top)
+        lb = left_cell.border
+        left_cell.border = Border(left=thin, top=lb.top, bottom=lb.bottom, right=lb.right)
+        rb = right_cell.border
+        right_cell.border = Border(right=thin, top=rb.top, bottom=rb.bottom, left=rb.left)
 
     wb.save(output_path)
     print(f'{subject_type} report saved: {output_path}')
+
 
 if __name__ == '__main__':
     data_file = sys.argv[1]
