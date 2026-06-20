@@ -1,47 +1,29 @@
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-/**
- * Random int between min and max inclusive
- */
-const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+const THIN = { style: 'thin', color: { argb: 'FF000000' } };
+const BORDER_ALL = { top: THIN, left: THIN, bottom: THIN, right: THIN };
 
-/**
- * Distribute subject marks into sub-components
- * B(Attendance 0-5) + C(Speed 0-5) + D(Creative 0-10) + E(Q1 0-20) + F(Q2 0-20) = Total(0-60)
- * Then convert: out of 30 = Total/2, out of 10 = Total/6
- */
+const randInt = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+
 const distributeSubjectMarks = (targetMark, isOutOf30) => {
-  const targetOutOf60 = isOutOf30
-    ? Math.round(targetMark * 2)
-    : Math.round(targetMark * 6);
-
-  const clamped = Math.max(20, Math.min(60, targetOutOf60));
-
+  const target60 = isOutOf30 ? Math.round(targetMark * 2) : Math.round(targetMark * 6);
+  const clamped = Math.max(20, Math.min(60, target60));
   let b, c, d, e, f;
   let attempts = 0;
-
   while (attempts < 500) {
-    b = randInt(2, 5);
-    c = randInt(2, 5);
-    d = randInt(3, 9);
+    b = randInt(2, 5); c = randInt(2, 5); d = randInt(3, 9);
     const remaining = clamped - b - c - d;
-
     if (remaining < 16 || remaining > 40) { attempts++; continue; }
-
     const eMin = Math.max(8, remaining - 20);
     const eMax = Math.min(20, remaining - 8);
     if (eMin > eMax) { attempts++; continue; }
-
     e = randInt(eMin, eMax);
     f = remaining - e;
-
     if (f < 8 || f > 20 || e === f) { attempts++; continue; }
-
     break;
   }
-
   if (attempts >= 500) {
     b = 3; c = 3; d = 6;
     const rem = clamped - b - c - d;
@@ -50,267 +32,199 @@ const distributeSubjectMarks = (targetMark, isOutOf30) => {
     if (f < 8) { e = rem - 8; f = 8; }
     if (f > 20) { e = rem - 20; f = 20; }
   }
-
-  const totalOutOf60 = b + c + d + e + f;
-  const converted = isOutOf30
-    ? totalOutOf60 / 2
-    : totalOutOf60 / 6;
-
-  return { b, c, d, e, f, totalOutOf60, converted };
+  return { b, c, d, e, f, total60: b + c + d + e + f };
 };
 
-/**
- * Generate ES/WCS/ED Excel report
- * Exact format matching actual reports
- * Columns: A=Roll No, B=Name, C=blank, D=Attendance, E=Speed, F=Creative,
- *          G=blank, H=Q1, I=Q2, J=Total, K=Converted, L=Sign
- */
-export const generateSubjectReportExcel = (reportData, subjectType) => {
+function setCell(ws, address, value, opts = {}) {
+  const cell = ws.getCell(address);
+  cell.value = value;
+  cell.font = { name: 'Calibri', size: opts.size || 11, bold: !!opts.bold };
+  cell.alignment = { horizontal: opts.h || 'left', vertical: 'middle', wrapText: opts.wrap !== false };
+  if (opts.border) cell.border = BORDER_ALL;
+}
+
+export const generateSubjectReportExcel = async (reportData, subjectType) => {
   const {
-    trainees,
-    subjectMarks,
-    instructorData,
-    batchData,
-    half,
-    assessmentDate,
-    tradeData,
-    has5Subjects,
+    trainees, subjectMarks, instructorData, batchData,
+    half, assessmentDate, tradeData, has5Subjects,
   } = reportData;
 
   const isOutOf30 = !has5Subjects && subjectType === 'ES';
-
-  const reportTitle = subjectType === 'ES'
-    ? 'ANNEXURE-III (FAR-2 )'
-    : '(FAR-2 )';
-
-  const subjectTitle = {
+  const titleMap = { ES: 'ANNEXURE-III (FAR-2 )', WCS: '(FAR-2 )', ED: '(FAR-2 )' };
+  const subjectTitleMap = {
     ES: 'FORMAT FOR INTERNAL ASSESSMENT FOR EMPLOYABILITY SKILLS',
     WCS: 'FORMAT FOR INTERNAL ASSESSMENT FOR WORKSHOP CALCULATION & SCIENCE',
     ED: 'FORMAT FOR INTERNAL ASSESSMENT FOR ENGINEERING DRAWING',
-  }[subjectType];
-
-  const conversionLabel = isOutOf30
+  };
+  const convertLabel = isOutOf30
     ? 'Convert Total Marks in  to 30 Markes =\n{(Col.G)/2}'
     : 'Convert Total Marks in  to 10 Markes =\n{(Col.G)/6}';
+  const formulaSuffix = isOutOf30 ? '/2' : '/6';
 
-  // Build marks lookup
   const marksLookup = {};
-  for (const m of subjectMarks) {
-    marksLookup[m.traineeId] = m;
-  }
+  for (const m of subjectMarks) marksLookup[m.traineeId] = m;
 
-  const wb = XLSX.utils.book_new();
-  const wsData = [];
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(`${subjectType}_Report`, {
+    pageSetup: { orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1 },
+  });
 
-  // ROW 1: Report type
-  wsData.push([reportTitle, '', '', '', '', '', '', '', '', '', '', '']);
+  const widths = [4.83, 20.0, 23.66, 7.83, 15.16, 7.5, 8.0, 7.33, 8.0, 8.43, 15.16, 8.16];
+  widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 
-  // ROW 2: Internal Assessment
-  wsData.push(['Internal Assessment', '', '', '', '', '', '', '', '', '', '', '']);
+  ws.getRow(1).height = 18;
+  ws.mergeCells('A1:L1');
+  setCell(ws, 'A1', titleMap[subjectType], { bold: true, size: 14, h: 'center' });
 
-  // ROW 3: Subject title
-  wsData.push([subjectTitle, '', '', '', '', '', '', '', '', '', '', '']);
+  ws.getRow(2).height = 18;
+  ws.mergeCells('A2:L2');
+  setCell(ws, 'A2', 'Internal Assessment', { bold: true, size: 12, h: 'center' });
 
-  // ROW 4: Assessor + Year
-  wsData.push([
-    'Name & Adddress of the Assessor', '', '',
-    instructorData.displayName || '',
-    '', '',
-    'Year of Enrolment', '', '', '',
-    batchData.yearOfAssessment || '',
-    '',
-  ]);
+  ws.getRow(3).height = 18;
+  ws.mergeCells('A3:L3');
+  setCell(ws, 'A3', subjectTitleMap[subjectType], { bold: true, size: 10, h: 'center' });
 
-  // ROW 5: ITI + Date
-  wsData.push([
-    'Name & Address of ITI (Govt/Pvt)', '', '',
-    instructorData.itiName || '',
-    '', '',
-    'Date of Assessment', '', '', '',
-    assessmentDate || '',
-    '',
-  ]);
+  ws.getRow(4).height = 18;
+  ws.mergeCells('A4:C4'); setCell(ws, 'A4', 'Name & Adddress of the Assessor');
+  ws.mergeCells('D4:F4'); setCell(ws, 'D4', instructorData.displayName || '', { bold: true });
+  ws.mergeCells('G4:J4'); setCell(ws, 'G4', 'Year of Enrolment');
+  ws.mergeCells('K4:L4'); setCell(ws, 'K4', batchData.yearOfAssessment || '', { bold: true });
 
-  // ROW 6: Industry + Location
-  wsData.push([
-    'Name & Address of the Industry', '', '',
-    instructorData.address || '',
-    '', '',
-    'Assessment Location', '', '', '',
-    instructorData.itiName || '',
-    '',
-  ]);
+  ws.getRow(5).height = 18;
+  ws.mergeCells('A5:C5'); setCell(ws, 'A5', 'Name & Address of ITI (Govt/Pvt)');
+  ws.mergeCells('D5:F5'); setCell(ws, 'D5', instructorData.itiName || '', { bold: true });
+  ws.mergeCells('G5:J5'); setCell(ws, 'G5', 'Date of Assessment');
+  ws.mergeCells('K5:L5'); setCell(ws, 'K5', assessmentDate || '', { bold: true });
 
-  // ROW 7: Trade + Duration + SEM
-  wsData.push([
-    'Trade Name', '',
-    tradeData?.name || '',
-    '', '', '',
-    'Duration Of  Trade', '', '',
-    tradeData ? `${tradeData.duration} Year` : '',
-    'SEM',
-    half,
-  ]);
+  ws.getRow(6).height = 18;
+  ws.mergeCells('A6:C6'); setCell(ws, 'A6', 'Name & Address of the Industry');
+  ws.mergeCells('D6:F6'); setCell(ws, 'D6', instructorData.address || '', { bold: true });
+  ws.mergeCells('G6:J6'); setCell(ws, 'G6', 'Assessment Location');
+  ws.mergeCells('K6:L6'); setCell(ws, 'K6', instructorData.itiName || '', { bold: true });
 
-  // ROW 8: LO + Batch
-  wsData.push([
-    'Learning Outcome :', '', '', '', '', '',
-    'Batch NO', '', '', '',
-    batchData.batchNumber || '',
-    '',
-  ]);
+  ws.getRow(7).height = 24;
+  ws.mergeCells('A7:B7'); setCell(ws, 'A7', 'Trade Name');
+  ws.mergeCells('C7:F7'); setCell(ws, 'C7', tradeData?.name || '', { bold: true, h: 'center' });
+  ws.mergeCells('G7:I7'); setCell(ws, 'G7', 'Duration Of  Trade');
+  setCell(ws, 'J7', tradeData ? `${tradeData.duration} Year` : '', { bold: true });
+  setCell(ws, 'K7', 'SEM');
+  setCell(ws, 'L7', half, { bold: true });
 
-  // ROW 9: Column headers
-  wsData.push([
-    'Roll No',
-    'Name',
-    '',
-    'Attendance',
-    'Speed for WC & Sc / Accuracy of ED / Comminacation skill fro ES',
-    'Creative Work (Chart , Model\n,Poster , Project work etc..)',
-    '',
-    'Quarterly -1',
-    'Quarterly -2',
-    'Total',
-    conversionLabel,
-    'Sign of Trainee',
-  ]);
+  ws.getRow(8).height = 18;
+  ws.mergeCells('A8:F8'); setCell(ws, 'A8', 'Learning Outcome :');
+  ws.mergeCells('G8:J8'); setCell(ws, 'G8', 'Batch NO');
+  ws.mergeCells('K8:L8'); setCell(ws, 'K8', batchData.batchNumber || '', { bold: true });
 
-  // ROW 10: Maximum marks
-  wsData.push([
-    'Maximum Marks =>', '', '',
-    5, 5, 10, '',
-    20, 20, 60,
-    '', '',
-  ]);
+  ws.getRow(9).height = 64;
+  setCell(ws, 'A9', 'Roll\nNo', { bold: true, h: 'center', border: true });
+  ws.mergeCells('B9:C9');
+  setCell(ws, 'B9', 'Name', { bold: true, h: 'center', border: true });
+  setCell(ws, 'D9', 'Attendance', { bold: true, h: 'center', border: true });
+  setCell(ws, 'E9', 'Speed for WC & Sc\n/ Accuracy of ED /\nComminacation\nskill fro ES', { bold: true, h: 'center', border: true });
+  ws.mergeCells('F9:G9');
+  setCell(ws, 'F9', 'Creative Work\n(Chart , Model\n,Poster , Project\nwork etc..)', { bold: true, h: 'center', border: true });
+  setCell(ws, 'H9', 'Quarterly -1', { bold: true, h: 'center', border: true });
+  setCell(ws, 'I9', 'Quarterly -2', { bold: true, h: 'center', border: true });
+  setCell(ws, 'J9', 'Total', { bold: true, h: 'center', border: true });
+  setCell(ws, 'K9', convertLabel, { bold: true, h: 'center', border: true });
+  setCell(ws, 'L9', 'Sign of\nTrainee', { bold: true, h: 'center', border: true });
+  ['C9', 'G9'].forEach(a => { ws.getCell(a).border = BORDER_ALL; });
 
-  // ROW 11: Column letters
-  wsData.push([
-    'A', '', '',
-    'B', 'C', 'D',
-    '',
-    'E', 'F', 'G', 'H', 'I',
-  ]);
+  ws.getRow(10).height = 18;
+  setCell(ws, 'A10', 'Maximum Marks =>', { bold: true, border: true });
+  ws.mergeCells('B10:C10'); setCell(ws, 'B10', '', { border: true });
+  setCell(ws, 'D10', 5, { bold: true, h: 'center', border: true });
+  setCell(ws, 'E10', 5, { bold: true, h: 'center', border: true });
+  ws.mergeCells('F10:G10'); setCell(ws, 'F10', 10, { bold: true, h: 'center', border: true });
+  setCell(ws, 'H10', 20, { bold: true, h: 'center', border: true });
+  setCell(ws, 'I10', 20, { bold: true, h: 'center', border: true });
+  setCell(ws, 'J10', 60, { bold: true, h: 'center', border: true });
+  setCell(ws, 'K10', '', { border: true });
+  setCell(ws, 'L10', '', { border: true });
 
-  // DATA ROWS
+  ws.getRow(11).height = 18;
+  setCell(ws, 'A11', 'A', { bold: true, h: 'center', border: true });
+  ws.mergeCells('B11:C11'); setCell(ws, 'B11', '', { border: true });
+  setCell(ws, 'D11', 'B', { bold: true, h: 'center', border: true });
+  setCell(ws, 'E11', 'C', { bold: true, h: 'center', border: true });
+  ws.mergeCells('F11:G11'); setCell(ws, 'F11', 'D', { bold: true, h: 'center', border: true });
+  setCell(ws, 'H11', 'E', { bold: true, h: 'center', border: true });
+  setCell(ws, 'I11', 'F', { bold: true, h: 'center', border: true });
+  setCell(ws, 'J11', 'G', { bold: true, h: 'center', border: true });
+  setCell(ws, 'K11', 'H', { bold: true, h: 'center', border: true });
+  setCell(ws, 'L11', 'I', { bold: true, h: 'center', border: true });
+
+  let rowIdx = 12;
   for (const trainee of trainees) {
-    const markEntry = marksLookup[trainee.id];
+    ws.getRow(rowIdx).height = 18;
+    const markEntry = marksLookup[trainee.id] || {};
+    let target;
+    if (subjectType === 'ES') target = markEntry.totalESMarks ?? (isOutOf30 ? 15 : 5);
+    else if (subjectType === 'WCS') target = markEntry.totalWCSMarks ?? 5;
+    else target = markEntry.totalEDMarks ?? 5;
 
-    let targetMark = 0;
-    if (markEntry) {
-      if (subjectType === 'ES') targetMark = markEntry.totalESMarks || 0;
-      else if (subjectType === 'WCS') targetMark = markEntry.totalWCSMarks || 0;
-      else if (subjectType === 'ED') targetMark = markEntry.totalEDMarks || 0;
-    } else {
-      targetMark = isOutOf30 ? 15 : 5;
-    }
+    const { b, c, d, e, f } = distributeSubjectMarks(target, isOutOf30);
 
-    const dist = distributeSubjectMarks(targetMark, isOutOf30);
-
-    // Converted display — show exact decimal
-    const convertedDisplay = isOutOf30
-      ? dist.totalOutOf60 / 2
-      : parseFloat((dist.totalOutOf60 / 6).toFixed(10));
-
-    wsData.push([
-      trainee.enrollmentNumber || '',  // A - Roll No
-      trainee.name || '',              // B - Name
-      '',                              // C - blank
-      dist.b,                          // D - Attendance
-      dist.c,                          // E - Speed
-      dist.d,                          // F - Creative
-      '',                              // G - blank
-      dist.e,                          // H - Q1
-      dist.f,                          // I - Q2
-      dist.totalOutOf60,               // J - Total
-      convertedDisplay,                // K - Converted
-      '',                              // L - Sign
-    ]);
+    setCell(ws, `A${rowIdx}`, trainee.rollNumber || trainee.enrollmentNumber || '', { h: 'left', border: true });
+    ws.mergeCells(`B${rowIdx}:C${rowIdx}`);
+    setCell(ws, `B${rowIdx}`, trainee.name || '', { h: 'left', border: true });
+    setCell(ws, `D${rowIdx}`, b, { h: 'center', border: true });
+    setCell(ws, `E${rowIdx}`, c, { h: 'center', border: true });
+    ws.mergeCells(`F${rowIdx}:G${rowIdx}`);
+    setCell(ws, `F${rowIdx}`, d, { h: 'center', border: true });
+    setCell(ws, `H${rowIdx}`, e, { h: 'center', border: true });
+    setCell(ws, `I${rowIdx}`, f, { h: 'center', border: true });
+    setCell(ws, `J${rowIdx}`, { formula: `SUM(D${rowIdx}:I${rowIdx})` }, { h: 'center', border: true });
+    setCell(ws, `K${rowIdx}`, { formula: `J${rowIdx}${formulaSuffix}` }, { h: 'center', border: true });
+    setCell(ws, `L${rowIdx}`, '', { border: true });
+    rowIdx++;
   }
 
-  // Blank row
-  wsData.push(['', '', '', '', '', '', '', '', '', '', '', '']);
+  rowIdx++;
+  ws.mergeCells(`B${rowIdx}:K${rowIdx}`);
+  setCell(ws, `B${rowIdx}`, 'Sign of SI :                                                            Sign of FI :');
+  rowIdx++;
+  setCell(ws, `B${rowIdx}`, instructorData.displayName || '', { bold: true });
+  rowIdx++;
+  setCell(ws, `B${rowIdx}`, instructorData.itiName || '');
+  setCell(ws, `H${rowIdx}`, instructorData.itiName || '');
 
-  // Sign rows
-  wsData.push(['', 'Sign of SI :                                                            Sign of FI :', '', '', '', '', '', '', '', '', '', '']);
-  wsData.push(['', instructorData.displayName || '', '', '', '', '', '', '', '', '', '', '']);
-  wsData.push(['', instructorData.itiName || '', '', '', '', '', '', '', '', '', '', '']);
-
-  // Create worksheet
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-  // Column widths matching actual report
-  ws['!cols'] = [
-    { wch: 14 },  // A - Roll No
-    { wch: 35 },  // B - Name
-    { wch: 3 },   // C - blank
-    { wch: 12 },  // D - Attendance
-    { wch: 28 },  // E - Speed
-    { wch: 28 },  // F - Creative
-    { wch: 3 },   // G - blank
-    { wch: 14 },  // H - Q1
-    { wch: 14 },  // I - Q2
-    { wch: 10 },  // J - Total
-    { wch: 36 },  // K - Converted
-    { wch: 14 },  // L - Sign
-  ];
-
-  const sheetName = `${subjectType}_Report`;
-  XLSX.utils.book_append_sheet(wb, ws, sheetName);
-
-  return { wb };
+  return wb;
 };
 
-/**
- * Generate ES/WCS/ED PDF report
- */
+export const downloadWorkbook = async (wb, filename) => {
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
 export const generateSubjectReportPDF = (reportData, subjectType) => {
   const {
-    trainees,
-    subjectMarks,
-    instructorData,
-    batchData,
-    half,
-    assessmentDate,
-    tradeData,
-    has5Subjects,
+    trainees, subjectMarks, instructorData, batchData,
+    half, assessmentDate, tradeData, has5Subjects,
   } = reportData;
-
   const isOutOf30 = !has5Subjects && subjectType === 'ES';
-
-  const subjectTitle = {
+  const subjectTitleMap = {
     ES: 'FORMAT FOR INTERNAL ASSESSMENT FOR EMPLOYABILITY SKILLS',
     WCS: 'FORMAT FOR INTERNAL ASSESSMENT FOR WORKSHOP CALCULATION & SCIENCE',
     ED: 'FORMAT FOR INTERNAL ASSESSMENT FOR ENGINEERING DRAWING',
-  }[subjectType];
-
-  const conversionLabel = isOutOf30
-    ? 'Converted (/30)'
-    : 'Converted (/10)';
-
+  };
+  const convertLabel = isOutOf30 ? 'Converted (/30)' : 'Converted (/10)';
   const marksLookup = {};
-  for (const m of subjectMarks) {
-    marksLookup[m.traineeId] = m;
-  }
+  for (const m of subjectMarks) marksLookup[m.traineeId] = m;
 
-  const doc = new jsPDF({
-    orientation: 'portrait',
-    unit: 'mm',
-    format: 'a4',
-  });
-
-  // Title
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
-  doc.text(
-    subjectType === 'ES' ? 'ANNEXURE-III (FAR-2)' : '(FAR-2)',
-    14, 10
-  );
+  doc.text(subjectType === 'ES' ? 'ANNEXURE-III (FAR-2)' : '(FAR-2)', 14, 10);
   doc.setFontSize(8);
   doc.text('Internal Assessment', 14, 15);
-  doc.text(subjectTitle, 14, 20);
-
-  // Header info
+  doc.text(subjectTitleMap[subjectType], 14, 20);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
   doc.text(`Assessor: ${instructorData.displayName || ''}`, 14, 26);
@@ -324,65 +238,26 @@ export const generateSubjectReportPDF = (reportData, subjectType) => {
   doc.text(`SEM: ${half}`, 170, 41);
   doc.text(`Batch No: ${batchData.batchNumber || ''}`, 14, 46);
 
-  // Table
-  const head = [[
-    'Roll No', 'Name',
-    'Attend\n(B/5)', 'Speed\n(C/5)', 'Creative\n(D/10)',
-    'Q1\n(E/20)', 'Q2\n(F/20)', 'Total\n(G/60)',
-    conversionLabel,
-  ]];
-
+  const head = [['Roll No', 'Name', 'Attend\n(B/5)', 'Speed\n(C/5)', 'Creative\n(D/10)', 'Q1\n(E/20)', 'Q2\n(F/20)', 'Total\n(G/60)', convertLabel]];
   const body = trainees.map(trainee => {
-    const markEntry = marksLookup[trainee.id];
-    let targetMark = isOutOf30 ? 15 : 5;
-    if (markEntry) {
-      if (subjectType === 'ES') targetMark = markEntry.totalESMarks || targetMark;
-      else if (subjectType === 'WCS') targetMark = markEntry.totalWCSMarks || targetMark;
-      else if (subjectType === 'ED') targetMark = markEntry.totalEDMarks || targetMark;
-    }
-
-    const dist = distributeSubjectMarks(targetMark, isOutOf30);
-    const convertedDisplay = isOutOf30
-      ? dist.totalOutOf60 / 2
-      : parseFloat((dist.totalOutOf60 / 6).toFixed(4));
-
-    return [
-      trainee.enrollmentNumber || '',
-      trainee.name || '',
-      dist.b, dist.c, dist.d,
-      dist.e, dist.f,
-      dist.totalOutOf60,
-      convertedDisplay,
-    ];
+    const markEntry = marksLookup[trainee.id] || {};
+    let target = isOutOf30 ? 15 : 5;
+    if (subjectType === 'ES') target = markEntry.totalESMarks ?? target;
+    else if (subjectType === 'WCS') target = markEntry.totalWCSMarks ?? target;
+    else target = markEntry.totalEDMarks ?? target;
+    const { b, c, d, e, f, total60 } = distributeSubjectMarks(target, isOutOf30);
+    const converted = isOutOf30 ? total60 / 2 : parseFloat((total60 / 6).toFixed(4));
+    return [trainee.enrollmentNumber || '', trainee.name || '', b, c, d, e, f, total60, converted];
   });
 
   autoTable(doc, {
-    head,
-    body,
-    startY: 50,
-    styles: {
-      fontSize: 7,
-      cellPadding: 2,
-      halign: 'center',
-      valign: 'middle',
-      lineColor: [0, 0, 0],
-      lineWidth: 0.2,
-    },
-    headStyles: {
-      fillColor: [210, 225, 242],
-      textColor: [0, 0, 0],
-      fontStyle: 'bold',
-    },
+    head, body, startY: 50,
+    styles: { fontSize: 7, cellPadding: 2, halign: 'center', valign: 'middle', lineColor: [0, 0, 0], lineWidth: 0.2 },
+    headStyles: { fillColor: [210, 225, 242], textColor: [0, 0, 0], fontStyle: 'bold' },
     columnStyles: {
-      0: { cellWidth: 25, halign: 'left' },
-      1: { cellWidth: 60, halign: 'left' },
-      2: { cellWidth: 14 },
-      3: { cellWidth: 14 },
-      4: { cellWidth: 14 },
-      5: { cellWidth: 14 },
-      6: { cellWidth: 14 },
-      7: { cellWidth: 14 },
-      8: { cellWidth: 22 },
+      0: { cellWidth: 25, halign: 'left' }, 1: { cellWidth: 60, halign: 'left' },
+      2: { cellWidth: 14 }, 3: { cellWidth: 14 }, 4: { cellWidth: 14 },
+      5: { cellWidth: 14 }, 6: { cellWidth: 14 }, 7: { cellWidth: 14 }, 8: { cellWidth: 22 },
     },
   });
 
@@ -392,6 +267,5 @@ export const generateSubjectReportPDF = (reportData, subjectType) => {
   doc.text('Sign of FI:', 100, finalY);
   doc.text(instructorData.displayName || '', 14, finalY + 6);
   doc.text(instructorData.itiName || '', 14, finalY + 12);
-
   return doc;
 };

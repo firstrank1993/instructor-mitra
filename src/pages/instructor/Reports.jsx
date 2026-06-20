@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import * as XLSX from 'xlsx';
 import useAuthStore from '../../store/authStore';
 import useAppStore from '../../store/appStore';
 import { getBatchTrainees } from '../../services/traineeService';
@@ -10,45 +9,12 @@ import {
   getEDMarksForReport,
   getWCSMarksForReport,
 } from '../../services/reportsService';
-import { generateFAR1Excel, generateFAR1PDF } from '../../utils/far1Generator';
+import { generateFAR1Excel, generateFAR1PDF, downloadWorkbook } from '../../utils/far1Generator';
 import { generateSubjectReportExcel, generateSubjectReportPDF } from '../../utils/far2Generator';
-
-const REPORT_SERVER = 'http://localhost:3001';
-
-const downloadFromServer = async (endpoint, payload, filename) => {
-  const response = await fetch(`${REPORT_SERVER}${endpoint}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const err = await response.json();
-    throw new Error(err.error || 'Server error');
-  }
-
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-};
-
-const isServerAvailable = async () => {
-  try {
-    const res = await fetch(`${REPORT_SERVER}/health`, { signal: AbortSignal.timeout(2000) });
-    return res.ok;
-  } catch {
-    return false;
-  }
-};
 
 const HALVES_1YR = ['H1', 'H2'];
 const HALVES_2YR = ['H1', 'H2', 'H3', 'H4'];
 
-// Report Card Component
 const ReportCard = ({
   title, subtitle, available,
   onDownloadExcel, onDownloadPDF,
@@ -71,10 +37,8 @@ const ReportCard = ({
         )}
       </div>
     </div>
-
     {available && (
       <div className="flex gap-2">
-        {/* Excel Download */}
         <button
           onClick={onDownloadExcel}
           disabled={loadingExcel || loadingPDF}
@@ -89,8 +53,6 @@ const ReportCard = ({
           )}
           Excel
         </button>
-
-        {/* PDF Download */}
         <button
           onClick={onDownloadPDF}
           disabled={loadingExcel || loadingPDF}
@@ -124,7 +86,6 @@ const Reports = () => {
   const [success, setSuccess] = useState('');
   const [selectedTrainees, setSelectedTrainees] = useState([]);
 
-  // Marks availability
   const [hasFAR1, setHasFAR1] = useState(false);
   const [hasES, setHasES] = useState(false);
   const [hasED, setHasED] = useState(false);
@@ -134,18 +95,13 @@ const Reports = () => {
     if (activeBatch && userData) loadData();
   }, [activeBatch, selectedHalf]);
 
-  // Auto-select all trainees when loaded
-useEffect(() => {
-  if (trainees.length > 0) {
-    setSelectedTrainees(trainees.map(t => t.id));
-  }
-}, [trainees]);
-
+  useEffect(() => {
+    if (trainees.length > 0) setSelectedTrainees(trainees.map(t => t.id));
+  }, [trainees]);
 
   const loadData = async () => {
     setLoading(true);
     setError('');
-
     try {
       const { trade: tradeData } = await getTradeById(userData.tradeId);
       setTrade(tradeData);
@@ -164,23 +120,20 @@ useEffect(() => {
 
       const { marks: wcsMarks } = await getWCSMarksForReport(activeBatch.id, selectedHalf);
       setHasWCS(wcsMarks.length > 0);
-
     } catch (err) {
       setError('Failed to load data.');
     }
-
     setLoading(false);
   };
 
   const getFilteredTrainees = () => {
-  if (selectedTrainees.length === 0) return trainees;
-  return trainees.filter(t => selectedTrainees.includes(t.id));
-};
+    if (selectedTrainees.length === 0) return trainees;
+    return trainees.filter(t => selectedTrainees.includes(t.id));
+  };
 
   const getReportData = async (subjectType) => {
     const filteredTrainees = getFilteredTrainees();
     let subjectMarks = [];
-
     if (subjectType === 'ES') {
       const { marks } = await getESMarksForReport(activeBatch.id, selectedHalf);
       subjectMarks = marks;
@@ -191,18 +144,11 @@ useEffect(() => {
       const { marks } = await getWCSMarksForReport(activeBatch.id, selectedHalf);
       subjectMarks = marks;
     }
-
     const has5Subjects = trade?.subjects?.includes('ED') && trade?.subjects?.includes('WCS');
-
     return {
-      trainees: filteredTrainees,
-      subjectMarks,
-      instructorData: userData,
-      batchData: activeBatch,
-      half: selectedHalf,
-      assessmentDate,
-      tradeData: trade,
-      has5Subjects,
+      trainees: filteredTrainees, subjectMarks,
+      instructorData: userData, batchData: activeBatch,
+      half: selectedHalf, assessmentDate, tradeData: trade, has5Subjects,
     };
   };
 
@@ -214,53 +160,32 @@ useEffect(() => {
     return true;
   };
 
-  // FAR-1 Excel
   const handleFAR1Excel = async () => {
-  if (!validateBeforeGenerate()) return;
-  setGeneratingReport('far1-excel');
-  setError('');
-  try {
-    const filteredTrainees = getFilteredTrainees();
-    const { marks: distributedMarks } = await getDistributedMarksForReport(activeBatch.id, selectedHalf);
-
-    if (distributedMarks.length === 0) {
-      setError('No marks found for this half. Please enter marks first.');
-      setGeneratingReport(null);
-      return;
+    if (!validateBeforeGenerate()) return;
+    setGeneratingReport('far1-excel');
+    setError('');
+    try {
+      const filteredTrainees = getFilteredTrainees();
+      const { marks: distributedMarks } = await getDistributedMarksForReport(activeBatch.id, selectedHalf);
+      if (distributedMarks.length === 0) {
+        setError('No distributed marks found for this half.');
+        setGeneratingReport(null);
+        return;
+      }
+      const wb = await generateFAR1Excel({
+        trainees: filteredTrainees, distributedMarks,
+        instructorData: userData, batchData: activeBatch,
+        half: selectedHalf, assessmentDate, tradeData: trade,
+      });
+      await downloadWorkbook(wb, `FAR1_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.xlsx`);
+      setSuccess('✅ FAR-1 Excel downloaded!');
+    } catch (err) {
+      console.error(err);
+      setError('Failed to generate FAR-1 Excel: ' + err.message);
     }
+    setGeneratingReport(null);
+  };
 
-    const payload = {
-      trainees: filteredTrainees,
-      distributedMarks,
-      instructorData: userData,
-      batchData: activeBatch,
-      half: selectedHalf,
-      assessmentDate,
-      tradeData: trade,
-    };
-
-    const filename = `FAR1_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.xlsx`;
-    const serverOk = await isServerAvailable();
-
-    if (serverOk) {
-      // Use Python server for exact formatting
-      await downloadFromServer('/generate/far1', payload, filename);
-      setSuccess('✅ FAR-1 Excel (exact format) downloaded!');
-    } else {
-      // Fallback to browser generator
-      const wb = generateFAR1Excel(payload);
-      const XLSX = await import('xlsx');
-      XLSX.writeFile(wb, filename);
-      setSuccess('✅ FAR-1 Excel downloaded (start report server for exact formatting)');
-    }
-  } catch (err) {
-    console.error(err);
-    setError('Failed to generate FAR-1: ' + err.message);
-  }
-  setGeneratingReport(null);
-};
-
-  // FAR-1 PDF
   const handleFAR1PDF = async () => {
     if (!validateBeforeGenerate()) return;
     setGeneratingReport('far1-pdf');
@@ -268,60 +193,40 @@ useEffect(() => {
     try {
       const filteredTrainees = getFilteredTrainees();
       const { marks: distributedMarks } = await getDistributedMarksForReport(activeBatch.id, selectedHalf);
-
       if (distributedMarks.length === 0) {
         setError('No marks found for this half.');
         setGeneratingReport(null);
         return;
       }
-
       const doc = generateFAR1PDF({
-        trainees: filteredTrainees,
-        distributedMarks,
-        instructorData: userData,
-        batchData: activeBatch,
-        half: selectedHalf,
-        assessmentDate,
-        tradeData: trade,
+        trainees: filteredTrainees, distributedMarks,
+        instructorData: userData, batchData: activeBatch,
+        half: selectedHalf, assessmentDate, tradeData: trade,
       });
-
       doc.save(`FAR1_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.pdf`);
-      setSuccess('✅ FAR-1 PDF report downloaded successfully!');
+      setSuccess('✅ FAR-1 PDF downloaded!');
     } catch (err) {
       console.error(err);
-      setError('Failed to generate FAR-1 PDF report.');
+      setError('Failed to generate FAR-1 PDF: ' + err.message);
     }
     setGeneratingReport(null);
   };
 
-  // Subject Reports (ES/ED/WCS)
   const handleSubjectExcel = async (subjectType) => {
-  if (!validateBeforeGenerate()) return;
-  setGeneratingReport(`${subjectType.toLowerCase()}-excel`);
-  setError('');
-  try {
-    const reportData = await getReportData(subjectType);
-    const filename = `${subjectType}_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.xlsx`;
-    const serverOk = await isServerAvailable();
-
-    if (serverOk) {
-      await downloadFromServer('/generate/subject', {
-        ...reportData,
-        subjectType,
-      }, filename);
-      setSuccess(`✅ ${subjectType} Excel (exact format) downloaded!`);
-    } else {
-      const { wb } = generateSubjectReportExcel(reportData, subjectType);
-      const XLSX = await import('xlsx');
-      XLSX.writeFile(wb, filename);
-      setSuccess(`✅ ${subjectType} Excel downloaded (start report server for exact formatting)`);
+    if (!validateBeforeGenerate()) return;
+    setGeneratingReport(`${subjectType.toLowerCase()}-excel`);
+    setError('');
+    try {
+      const reportData = await getReportData(subjectType);
+      const wb = await generateSubjectReportExcel(reportData, subjectType);
+      await downloadWorkbook(wb, `${subjectType}_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.xlsx`);
+      setSuccess(`✅ ${subjectType} Excel downloaded!`);
+    } catch (err) {
+      console.error(err);
+      setError(`Failed to generate ${subjectType}: ${err.message}`);
     }
-  } catch (err) {
-    console.error(err);
-    setError(`Failed: ${err.message}`);
-  }
-  setGeneratingReport(null);
-};
+    setGeneratingReport(null);
+  };
 
   const handleSubjectPDF = async (subjectType) => {
     if (!validateBeforeGenerate()) return;
@@ -331,10 +236,10 @@ useEffect(() => {
       const reportData = await getReportData(subjectType);
       const doc = generateSubjectReportPDF(reportData, subjectType);
       doc.save(`${subjectType}_${activeBatch.batchNumber}_${selectedHalf}_${assessmentDate}.pdf`);
-      setSuccess(`✅ ${subjectType} PDF report downloaded!`);
+      setSuccess(`✅ ${subjectType} PDF downloaded!`);
     } catch (err) {
       console.error(err);
-      setError(`Failed to generate ${subjectType} PDF.`);
+      setError(`Failed to generate ${subjectType} PDF: ${err.message}`);
     }
     setGeneratingReport(null);
   };
@@ -360,8 +265,6 @@ useEffect(() => {
 
   return (
     <div className="space-y-5 max-w-3xl mx-auto">
-
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
         <p className="text-gray-500 text-sm mt-1">
@@ -370,15 +273,12 @@ useEffect(() => {
         </p>
       </div>
 
-      {/* Success */}
       {success && (
         <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center gap-3">
           <p className="text-green-700 font-semibold text-sm flex-1">{success}</p>
           <button onClick={() => setSuccess('')} className="text-green-400 hover:text-green-600">✕</button>
         </div>
       )}
-
-      {/* Error */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-center gap-3">
           <p className="text-red-700 font-semibold text-sm flex-1">{error}</p>
@@ -386,11 +286,9 @@ useEffect(() => {
         </div>
       )}
 
-      {/* Settings */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4">
         <h3 className="font-bold text-gray-800">Report Settings</h3>
 
-        {/* Half */}
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-2">Select Half</label>
           <div className="flex gap-2 flex-wrap">
@@ -410,7 +308,6 @@ useEffect(() => {
           </div>
         </div>
 
-        {/* Date */}
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-2">
             Date of Assessment <span className="text-red-500">*</span>
@@ -423,61 +320,49 @@ useEffect(() => {
           />
         </div>
 
-        {/* Trainee Checklist Filter */}
-<div>
-  <div className="flex items-center justify-between mb-2">
-    <label className="block text-sm font-semibold text-gray-700">
-      Select Trainees
-    </label>
-    <div className="flex gap-2">
-      <button
-        onClick={() => setSelectedTrainees(trainees.map(t => t.id))}
-        className="text-xs text-blue-600 font-semibold hover:underline"
-      >
-        Select All
-      </button>
-      <span className="text-gray-300">|</span>
-      <button
-        onClick={() => setSelectedTrainees([])}
-        className="text-xs text-red-500 font-semibold hover:underline"
-      >
-        Clear
-      </button>
-    </div>
-  </div>
-  <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-50">
-    {trainees.map(t => (
-      <label
-        key={t.id}
-        className="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 cursor-pointer"
-      >
-        <input
-          type="checkbox"
-          checked={selectedTrainees.includes(t.id)}
-          onChange={(e) => {
-            if (e.target.checked) {
-              setSelectedTrainees(prev => [...prev, t.id]);
-            } else {
-              setSelectedTrainees(prev => prev.filter(id => id !== t.id));
-            }
-          }}
-          className="w-4 h-4 rounded text-blue-600"
-        />
-        <span className="text-sm text-gray-700 flex-1">{t.name}</span>
-        <span className="text-xs text-gray-400">{t.enrollmentNumber}</span>
-      </label>
-    ))}
-  </div>
-  <p className="text-xs text-gray-400 mt-1">
-    {selectedTrainees.length} of {trainees.length} trainees selected
-  </p>
-</div>
-
-        {/* Status */}
-        <div className="bg-gray-50 rounded-xl p-3 space-y-2">
-          <p className="text-xs font-semibold text-gray-600 mb-2">
-            Marks Status for {selectedHalf}:
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-semibold text-gray-700">Select Trainees</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSelectedTrainees(trainees.map(t => t.id))}
+                className="text-xs text-blue-600 font-semibold hover:underline"
+              >
+                Select All
+              </button>
+              <span className="text-gray-300">|</span>
+              <button
+                onClick={() => setSelectedTrainees([])}
+                className="text-xs text-red-500 font-semibold hover:underline"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-50">
+            {trainees.map(t => (
+              <label key={t.id} className="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedTrainees.includes(t.id)}
+                  onChange={(e) => {
+                    if (e.target.checked) setSelectedTrainees(prev => [...prev, t.id]);
+                    else setSelectedTrainees(prev => prev.filter(id => id !== t.id));
+                  }}
+                  className="w-4 h-4 rounded text-blue-600"
+                />
+                <span className="text-sm text-gray-700 flex-1">{t.name}</span>
+                <span className="text-xs text-gray-400">{t.enrollmentNumber}</span>
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-1">
+            {selectedTrainees.length} of {trainees.length} trainees selected
           </p>
+        </div>
+
+        <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+          <p className="text-xs font-semibold text-gray-600 mb-2">Marks Status for {selectedHalf}:</p>
           {[
             { label: 'FAR-1 (Trade Practical)', has: hasFAR1 },
             { label: 'FAR-3 ES (Employability Skills)', has: hasES },
@@ -487,13 +372,9 @@ useEffect(() => {
             ] : []),
           ].map(({ label, has }) => (
             <div key={label} className="flex items-center gap-2">
-              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                has ? 'bg-green-500' : 'bg-gray-300'
-              }`}></div>
+              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${has ? 'bg-green-500' : 'bg-gray-300'}`}></div>
               <p className="text-xs text-gray-600">{label}</p>
-              <span className={`text-xs font-semibold ml-auto ${
-                has ? 'text-green-600' : 'text-gray-400'
-              }`}>
+              <span className={`text-xs font-semibold ml-auto ${has ? 'text-green-600' : 'text-gray-400'}`}>
                 {has ? '✓ Ready' : '— No marks'}
               </span>
             </div>
@@ -501,21 +382,14 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* Report Cards */}
       {loading ? (
         <div className="flex items-center justify-center py-8">
           <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
         </div>
       ) : (
         <div className="space-y-4">
-          <h3 className="font-bold text-gray-800">
-            Available Reports
-            <span className="ml-2 text-xs text-gray-400 font-normal">
-              (Each report has Excel + PDF download)
-            </span>
-          </h3>
+          <h3 className="font-bold text-gray-800">Available Reports</h3>
 
-          {/* FAR-1 */}
           <ReportCard
             title="FAR-1 — Trade Practical"
             subtitle="Internal Assessment TP — A4 Landscape — One sheet per trainee"
@@ -532,7 +406,6 @@ useEffect(() => {
             }
           />
 
-          {/* FAR-3 ES */}
           <ReportCard
             title="FAR-3 Annexure III — Employability Skills"
             subtitle={`Internal Assessment ES — ${has5Subjects ? 'Out of 10' : 'Out of 30'} marks — A4 Portrait`}
@@ -549,7 +422,6 @@ useEffect(() => {
             }
           />
 
-          {/* FAR-2 ED */}
           {has5Subjects && (
             <ReportCard
               title="FAR-2 — Engineering Drawing"
@@ -568,7 +440,6 @@ useEffect(() => {
             />
           )}
 
-          {/* FAR-2 WCS */}
           {has5Subjects && (
             <ReportCard
               title="FAR-2 — Workshop Calculation & Science"
