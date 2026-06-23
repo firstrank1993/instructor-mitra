@@ -1,9 +1,25 @@
 import ExcelJS from 'exceljs';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 
 const THIN = { style: 'thin', color: { argb: 'FF000000' } };
 const BORDER_ALL = { top: THIN, left: THIN, bottom: THIN, right: THIN };
+
+/** Convert any date-ish input to DD/MM/YYYY display string. */
+function toDisplayDate(value) {
+  if (!value) return '';
+  let d;
+  if (value instanceof Date) d = value;
+  else if (typeof value === 'string') {
+    if (value.includes('/')) return value; // already DD/MM/YYYY
+    d = new Date(value);
+  } else {
+    return String(value);
+  }
+  if (isNaN(d.getTime())) return String(value);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
 
 const CRITERIA = [
   { name: 'Safety consciousness', subs: [
@@ -63,9 +79,10 @@ function setCell(ws, addr, value, opts = {}) {
   if (opts.fill) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: opts.fill } };
 }
 
-/** Sanitize a roll number into a safe, unique Excel sheet name (max 31 chars). */
+/** Build a safe, unique Excel sheet name from the trainee's ROLL NUMBER. */
 function safeSheetName(rollNumber, enrollmentNumber, usedNames) {
-  let base = String(rollNumber || enrollmentNumber || 'Sheet').trim();
+  let base = String(rollNumber || '').trim();
+  if (!base) base = String(enrollmentNumber || 'Sheet').trim();
   base = base.replace(/[/\\*?[\]:]/g, '_').substring(0, 28) || 'Sheet';
   let name = base;
   let suffix = 1;
@@ -81,6 +98,7 @@ export const generateFAR1Excel = async (reportData) => {
   const { trainees, distributedMarks, instructorData, batchData, half, assessmentDate, tradeData } = reportData;
   const wb = new ExcelJS.Workbook();
   const usedNames = new Set();
+  const displayDate = toDisplayDate(assessmentDate);
 
   for (const trainee of trainees) {
     const traineeMarks = distributedMarks.filter(m => m.traineeId === trainee.id && m.half === half);
@@ -95,7 +113,6 @@ export const generateFAR1Excel = async (reportData) => {
     }
     const sortedLOs = Object.values(loGroups).sort((a, b) => a.loNumber - b.loNumber);
 
-    // Sheet name = Roll Number (not student name)
     const sheetName = safeSheetName(trainee.rollNumber, trainee.enrollmentNumber, usedNames);
 
     const ws = wb.addWorksheet(sheetName, {
@@ -108,44 +125,57 @@ export const generateFAR1Excel = async (reportData) => {
     setCell(ws, 'B1', 'Internal Assessment', { bold: true, size: 11 });
     ws.getRow(1).height = 15;
 
-    const doa = trainee.dateOfAdmission || '';
     let yearOfEnrollment = batchData.yearOfAssessment || '';
-    if (doa.includes('/')) { const p = doa.split('/'); if (p.length === 3) yearOfEnrollment = p[2]; }
-    else if (doa.includes('-')) yearOfEnrollment = doa.split('-')[0];
+    const doa = trainee.dateOfAdmission || '';
+    if (doa.includes('/')) {
+      const p = doa.split('/');
+      if (p.length === 3) yearOfEnrollment = p[2];
+    } else if (doa.includes('-')) {
+      yearOfEnrollment = doa.split('-')[0];
+    }
 
+    // ROW 2 — Name of Trainee / Roll NO / Year of Enrollment / Sem
+    // Authoritative merges from actual report: B2:E2, F2:R2, S2:U2, V2:W2, X2:AD2, AE2:AH2, AI2:AL2, AM2:AP2
     ws.getRow(2).height = 15;
     ws.mergeCells(2, 2, 2, 5); setCell(ws, 'B2', 'Name of Trainee:', { h: 'left', border: false });
     ws.mergeCells(2, 6, 2, 18); setCell(ws, 'F2', trainee.name || '', { bold: true, h: 'left', border: false });
-    setCell(ws, 'S2', 'Roll NO:', { h: 'left', border: false });
-    setCell(ws, 'V2', trainee.rollNumber || trainee.enrollmentNumber || '', { bold: true, border: false });
+    ws.mergeCells(2, 19, 2, 21); setCell(ws, 'S2', 'Roll NO:', { h: 'left', border: false });
+    ws.mergeCells(2, 22, 2, 23); setCell(ws, 'V2', trainee.rollNumber || trainee.enrollmentNumber || '', { bold: true, border: false });
     ws.mergeCells(2, 24, 2, 30); setCell(ws, 'X2', 'Year of Enrollment:', { h: 'left', border: false });
     ws.mergeCells(2, 31, 2, 34); setCell(ws, 'AE2', yearOfEnrollment, { bold: true, border: false });
-    setCell(ws, 'AI2', 'Sem:', { h: 'left', border: false });
-    ws.mergeCells(2, 39, 2, 42); setCell(ws, 'AM2', half, { bold: true, h: 'left', border: false });
+    ws.mergeCells(2, 35, 2, 38); setCell(ws, 'AI2', 'Sem:', { h: 'left', border: false });
+    ws.mergeCells(2, 39, 2, 42); setCell(ws, 'AM2', half, { bold: true, border: false });
 
+    // ROW 3 — Name of ITI / Date of Assessment / Batch
+    // Authoritative merges: B3:E3, F3:W3, X3:AD3, AE3:AH3, AI3:AL3, AM3:AP3
     ws.getRow(3).height = 15;
     ws.mergeCells(3, 2, 3, 5); setCell(ws, 'B3', 'Name of ITI:', { h: 'left', border: false });
-    ws.mergeCells(3, 6, 3, 18); setCell(ws, 'F3', instructorData.itiName || '', { bold: true, h: 'left', border: false });
+    ws.mergeCells(3, 6, 3, 23); setCell(ws, 'F3', instructorData.itiName || '', { bold: true, h: 'left', border: false });
     ws.mergeCells(3, 24, 3, 30); setCell(ws, 'X3', 'Date of Assessment:', { h: 'left', border: false });
-    ws.mergeCells(3, 31, 3, 34); setCell(ws, 'AE3', assessmentDate || '', { bold: true, border: false });
-    setCell(ws, 'AI3', 'Batch:', { h: 'left', border: false });
-    ws.mergeCells(3, 39, 3, 42); setCell(ws, 'AM3', batchData.batchNumber || '', { bold: true, h: 'left', border: false });
+    ws.mergeCells(3, 31, 3, 34); setCell(ws, 'AE3', displayDate, { bold: true, border: false });
+    ws.mergeCells(3, 35, 3, 38); setCell(ws, 'AI3', 'Batch:', { h: 'left', border: false });
+    ws.mergeCells(3, 39, 3, 42); setCell(ws, 'AM3', batchData.batchNumber || '', { bold: true, border: false });
 
+    // ROW 4 — Name of the Industry / Assessment Location
+    // Authoritative merges: B4:E4, F4:W4, X4:AD4, AE4:AP4
     ws.getRow(4).height = 15;
     ws.mergeCells(4, 2, 4, 5); setCell(ws, 'B4', 'Name of the Industry:', { h: 'left', border: false });
     ws.mergeCells(4, 6, 4, 23); setCell(ws, 'F4', tradeData?.name || '', { bold: true, h: 'left', border: false });
     ws.mergeCells(4, 24, 4, 30); setCell(ws, 'X4', 'Assessment Location:', { h: 'left', border: false });
     ws.mergeCells(4, 31, 4, 42); setCell(ws, 'AE4', instructorData.address || '', { bold: true, h: 'left', border: false });
 
+    // ROW 5 — Trade Name / Duration of Trade / S.I.Name
+    // Authoritative merges: B5:E5, F5:W5, X5:AD5, AE5:AH5, AI5:AK5, AL5:AP5
     ws.getRow(5).height = 15;
     const duration = tradeData?.duration || 1;
     ws.mergeCells(5, 2, 5, 5); setCell(ws, 'B5', 'Trade Name:', { h: 'left', border: false });
     ws.mergeCells(5, 6, 5, 23); setCell(ws, 'F5', tradeData?.name || '', { bold: true, h: 'left', border: false });
     ws.mergeCells(5, 24, 5, 30); setCell(ws, 'X5', 'Duration of the Trade:', { h: 'left', border: false });
     ws.mergeCells(5, 31, 5, 34); setCell(ws, 'AE5', `${duration} Year`, { bold: true, h: 'left', border: false });
-    setCell(ws, 'AI5', 'S.I.Name:', { h: 'left', border: false });
+    ws.mergeCells(5, 35, 5, 37); setCell(ws, 'AI5', 'S.I.Name:', { h: 'left', border: false });
     ws.mergeCells(5, 38, 5, 42); setCell(ws, 'AL5', instructorData.displayName || '', { bold: true, h: 'left', border: false });
 
+    // ROW 6 — criteria group headers
     ws.getRow(6).height = 43;
     setCell(ws, 'B6', ''); setCell(ws, 'C6', '');
     let col = 4;
@@ -158,6 +188,7 @@ export const generateFAR1Excel = async (reportData) => {
     }
     setCell(ws, 'AN6', ''); setCell(ws, 'AO6', ''); setCell(ws, 'AP6', '');
 
+    // ROW 7 — sub-criteria headers (rotated)
     ws.getRow(7).height = 126;
     setCell(ws, 'B7', 'Learning Outcome Number', { bold: true, size: 8, rotate: 90 });
     setCell(ws, 'C7', 'Practical / \nProfessional Skill Number', { bold: true, size: 8, rotate: 90 });
@@ -174,6 +205,7 @@ export const generateFAR1Excel = async (reportData) => {
     setCell(ws, 'AO7', 'Signature of Trainee', { bold: true, size: 8, rotate: 90 });
     setCell(ws, 'AP7', 'Signature of SI', { bold: true, size: 8, rotate: 90 });
 
+    // ROW 8 — max marks
     ws.getRow(8).height = 15;
     setCell(ws, 'B8', ''); setCell(ws, 'C8', '');
     col = 4;
@@ -216,9 +248,8 @@ export const generateFAR1Excel = async (reportData) => {
         currentRow++;
       }
 
-      // LO average row — auto-grow height if LO name is long
       const loName = lo.loName || `LO ${lo.loNumber}`;
-      const estimatedLines = Math.ceil(loName.length / 110); // ~110 chars fit per line across merged B:AF at size 9
+      const estimatedLines = Math.ceil(loName.length / 110);
       ws.getRow(currentRow).height = Math.max(15, estimatedLines * 14);
 
       ws.mergeCells(currentRow, 2, currentRow, 32);
@@ -254,101 +285,4 @@ export const downloadWorkbook = async (wb, filename) => {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-};
-
-export const generateFAR1PDF = (reportData) => {
-  const { trainees, distributedMarks, instructorData, batchData, half, assessmentDate, tradeData } = reportData;
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  let firstPage = true;
-
-  for (const trainee of trainees) {
-    const traineeMarks = distributedMarks.filter(m => m.traineeId === trainee.id && m.half === half);
-    if (traineeMarks.length === 0) continue;
-    if (!firstPage) doc.addPage();
-    firstPage = false;
-
-    const loGroups = {};
-    for (const mark of traineeMarks) {
-      if (!loGroups[mark.loId]) {
-        loGroups[mark.loId] = { loId: mark.loId, loName: mark.loName, loNumber: mark.loNumber, loMark: mark.loMark, practicals: [] };
-      }
-      loGroups[mark.loId].practicals.push(mark);
-    }
-    const sortedLOs = Object.values(loGroups).sort((a, b) => a.loNumber - b.loNumber);
-
-    const doa = trainee.dateOfAdmission || '';
-    let yearOfEnrollment = batchData.yearOfAssessment || '';
-    if (doa.includes('/')) yearOfEnrollment = doa.split('/')[2] || yearOfEnrollment;
-    else if (doa.includes('-')) yearOfEnrollment = doa.split('-')[0] || yearOfEnrollment;
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text('Internal Assessment', 148, 8, { align: 'center' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    const y = 13;
-    doc.text(`Name of Trainee: ${trainee.name || ''}`, 5, y);
-    doc.text(`Roll No: ${trainee.rollNumber || trainee.enrollmentNumber || ''}`, 130, y);
-    doc.text(`Year: ${yearOfEnrollment}`, 175, y);
-    doc.text(`Sem: ${half}`, 220, y);
-    doc.text(`ITI: ${instructorData.itiName || ''}`, 5, y + 4);
-    doc.text(`Date: ${assessmentDate || ''}`, 130, y + 4);
-    doc.text(`Batch: ${batchData.batchNumber || ''}`, 220, y + 4);
-    doc.text(`Industry: ${tradeData?.name || ''}`, 5, y + 8);
-    doc.text(`Location: ${instructorData.address || ''}`, 130, y + 8);
-    doc.text(`Trade: ${tradeData?.name || ''}`, 5, y + 12);
-    doc.text(`Duration: ${tradeData?.duration || ''} Year`, 130, y + 12);
-    doc.text(`SI: ${instructorData.displayName || ''}`, 175, y + 12);
-
-    const head = [[
-      'LO', 'P#', 'DC\n/2', 'PPE\n/5', 'Sft\n/8', 'C1\n/15',
-      'Cln\n/3', 'Scr\n/2', 'Mat\n/5', 'C2\n/10',
-      'Ini\n/3', 'Acc\n/3', 'Par\n/4', 'C3\n/10',
-      'Man\n/1', 'Src\n/2', 'Rd\n/2', 'C4\n/5',
-      'Pln\n/4', 'Tls\n/3', 'Rev\n/3', 'C5\n/10',
-      'Hdl\n/4', 'Sft\n/3', 'Car\n/3', 'C6\n/10',
-      'Seq\n/3', 'Tec\n/5', 'REx\n/2', 'C7\n/10',
-      'Acc\n/7', 'Cnf\n/3', 'Sat\n/5', 'C8\n/15',
-      'Rsp\n/7', 'Tec\n/5', 'Job\n/3', 'C9\n/15', 'GT\n/100',
-    ]];
-
-    const body = [];
-    for (const lo of sortedLOs) {
-      const sortedPracticals = [...lo.practicals].sort((a, b) => (a.practicalNumber || 0) - (b.practicalNumber || 0));
-      for (const practical of sortedPracticals) {
-        const row = [`LO-${lo.loNumber}`, practical.practicalNumber];
-        let grandTotal = 0;
-        for (const criteria of (practical.criteriaMarks || [])) {
-          for (const sub of criteria.subCriteriaMarks) row.push(sub.allocatedMark);
-          row.push(criteria.allocatedMark);
-          grandTotal += criteria.allocatedMark;
-        }
-        row.push(grandTotal);
-        body.push(row);
-      }
-      const avgRow = new Array(40).fill('');
-      avgRow[0] = (lo.loName || '').substring(0, 30);
-      avgRow[37] = `Avg LO${lo.loNumber}`;
-      avgRow[38] = lo.loMark || 0;
-      body.push(avgRow);
-    }
-    const overallAvg = sortedLOs.length > 0
-      ? Math.round(sortedLOs.reduce((s, lo) => s + (lo.loMark || 0), 0) / sortedLOs.length)
-      : 0;
-    const finalRow = new Array(40).fill('');
-    finalRow[0] = 'Average of All LOs';
-    finalRow[38] = overallAvg;
-    body.push(finalRow);
-
-    autoTable(doc, {
-      head, body, startY: y + 17,
-      styles: { fontSize: 5, cellPadding: 0.8, valign: 'middle', halign: 'center', lineColor: [0, 0, 0], lineWidth: 0.1 },
-      headStyles: { fillColor: [198, 239, 206], textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 5 },
-      columnStyles: { 0: { cellWidth: 14, halign: 'left' }, 1: { cellWidth: 7 } },
-      margin: { left: 3, right: 3 },
-      tableWidth: 'auto',
-    });
-  }
-
-  return doc;
 };

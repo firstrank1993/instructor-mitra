@@ -1,9 +1,24 @@
 import ExcelJS from 'exceljs';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 
 const THIN = { style: 'thin', color: { argb: 'FF000000' } };
 const BORDER_ALL = { top: THIN, left: THIN, bottom: THIN, right: THIN };
+
+function toDisplayDate(value) {
+  if (!value) return '';
+  let d;
+  if (value instanceof Date) d = value;
+  else if (typeof value === 'string') {
+    if (value.includes('/')) return value;
+    d = new Date(value);
+  } else {
+    return String(value);
+  }
+  if (isNaN(d.getTime())) return String(value);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
 
 const randInt = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
 
@@ -38,9 +53,16 @@ const distributeSubjectMarks = (targetMark, isOutOf30) => {
 function setCell(ws, address, value, opts = {}) {
   const cell = ws.getCell(address);
   cell.value = value;
-  cell.font = { name: 'Calibri', size: opts.size || 11, bold: !!opts.bold };
+  cell.font = { name: 'Arial MT', size: opts.size || 10, bold: !!opts.bold };
   cell.alignment = { horizontal: opts.h || 'left', vertical: 'middle', wrapText: opts.wrap !== false };
   if (opts.border) cell.border = BORDER_ALL;
+}
+
+/** Build a safe, unique Excel sheet name. ES/WCS/ED are single-sheet reports
+ *  (all trainees on one sheet), so this is only used for the sheet's own title,
+ *  not per-trainee — kept here for consistency with far1Generator. */
+function safeSheetName(base) {
+  return String(base || 'Report').replace(/[/\\*?[\]:]/g, '_').substring(0, 31) || 'Report';
 }
 
 export const generateSubjectReportExcel = async (reportData, subjectType) => {
@@ -60,12 +82,13 @@ export const generateSubjectReportExcel = async (reportData, subjectType) => {
     ? 'Convert Total Marks in  to 30 Markes =\n{(Col.G)/2}'
     : 'Convert Total Marks in  to 10 Markes =\n{(Col.G)/6}';
   const formulaSuffix = isOutOf30 ? '/2' : '/6';
+  const displayDate = toDisplayDate(assessmentDate);
 
   const marksLookup = {};
   for (const m of subjectMarks) marksLookup[m.traineeId] = m;
 
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet(`${subjectType}_Report`, {
+  const ws = wb.addWorksheet(safeSheetName(`${subjectType}_Report`), {
     pageSetup: { orientation: 'portrait', paperSize: 9, fitToPage: true, fitToWidth: 1 },
   });
 
@@ -94,7 +117,7 @@ export const generateSubjectReportExcel = async (reportData, subjectType) => {
   ws.mergeCells('A5:C5'); setCell(ws, 'A5', 'Name & Address of ITI (Govt/Pvt)');
   ws.mergeCells('D5:F5'); setCell(ws, 'D5', instructorData.itiName || '', { bold: true });
   ws.mergeCells('G5:J5'); setCell(ws, 'G5', 'Date of Assessment');
-  ws.mergeCells('K5:L5'); setCell(ws, 'K5', assessmentDate || '', { bold: true });
+  ws.mergeCells('K5:L5'); setCell(ws, 'K5', displayDate, { bold: true });
 
   ws.getRow(6).height = 18;
   ws.mergeCells('A6:C6'); setCell(ws, 'A6', 'Name & Address of the Industry');
@@ -115,39 +138,43 @@ export const generateSubjectReportExcel = async (reportData, subjectType) => {
   ws.mergeCells('G8:J8'); setCell(ws, 'G8', 'Batch NO');
   ws.mergeCells('K8:L8'); setCell(ws, 'K8', batchData.batchNumber || '', { bold: true });
 
+  // Row 9 — column headers (only B9:C9 and F9:G9 merge per actual report; A9 itself is plain, unmerged)
   ws.getRow(9).height = 64;
-  setCell(ws, 'A9', 'Roll\nNo', { bold: true, h: 'center', border: true });
+  setCell(ws, 'A9', 'Roll\nNo', { bold: true, h: 'left', border: true, size: 10 });
   ws.mergeCells('B9:C9');
-  setCell(ws, 'B9', 'Name', { bold: true, h: 'center', border: true });
-  setCell(ws, 'D9', 'Attendance', { bold: true, h: 'center', border: true });
-  setCell(ws, 'E9', 'Speed for WC & Sc\n/ Accuracy of ED /\nComminacation\nskill fro ES', { bold: true, h: 'center', border: true });
+  setCell(ws, 'B9', 'Name', { bold: true, h: 'center', border: true, size: 10 });
+  setCell(ws, 'D9', 'Attendance', { bold: true, h: 'center', border: true, size: 8 });
+  setCell(ws, 'E9', 'Speed for WC & Sc\n/ Accuracy of ED /\nComminacation\nskill fro ES', { bold: true, h: 'center', border: true, size: 8 });
   ws.mergeCells('F9:G9');
-  setCell(ws, 'F9', 'Creative Work\n(Chart , Model\n,Poster , Project\nwork etc..)', { bold: true, h: 'center', border: true });
-  setCell(ws, 'H9', 'Quarterly -1', { bold: true, h: 'center', border: true });
-  setCell(ws, 'I9', 'Quarterly -2', { bold: true, h: 'center', border: true });
-  setCell(ws, 'J9', 'Total', { bold: true, h: 'center', border: true });
-  setCell(ws, 'K9', convertLabel, { bold: true, h: 'center', border: true });
-  setCell(ws, 'L9', 'Sign of\nTrainee', { bold: true, h: 'center', border: true });
-  ['C9', 'G9'].forEach(a => { ws.getCell(a).border = BORDER_ALL; });
+  setCell(ws, 'F9', 'Creative Work\n(Chart , Model\n,Poster , Project\nwork etc..)', { bold: true, h: 'center', border: true, size: 8 });
+  setCell(ws, 'H9', 'Quarterly -1', { bold: true, h: 'center', border: true, size: 8 });
+  setCell(ws, 'I9', 'Quarterly -2', { bold: true, h: 'center', border: true, size: 8 });
+  setCell(ws, 'J9', 'Total', { bold: true, h: 'center', border: true, size: 8 });
+  setCell(ws, 'K9', convertLabel, { bold: true, h: 'center', border: true, size: 8 });
+  setCell(ws, 'L9', 'Sign of\nTrainee', { bold: true, h: 'center', border: true, size: 8 });
 
+  // Row 10 — Maximum Marks (A10:C10 merged per actual report, not just B10:C10)
   ws.getRow(10).height = 18;
-  setCell(ws, 'A10', 'Maximum Marks =>', { bold: true, border: true });
-  ws.mergeCells('B10:C10'); setCell(ws, 'B10', '', { border: true });
+  ws.mergeCells('A10:C10');
+  setCell(ws, 'A10', 'Maximum Marks =>', { bold: true, h: 'left', border: true, size: 9 });
   setCell(ws, 'D10', 5, { bold: true, h: 'center', border: true });
   setCell(ws, 'E10', 5, { bold: true, h: 'center', border: true });
-  ws.mergeCells('F10:G10'); setCell(ws, 'F10', 10, { bold: true, h: 'center', border: true });
+  ws.mergeCells('F10:G10');
+  setCell(ws, 'F10', 10, { bold: true, h: 'center', border: true });
   setCell(ws, 'H10', 20, { bold: true, h: 'center', border: true });
   setCell(ws, 'I10', 20, { bold: true, h: 'center', border: true });
   setCell(ws, 'J10', 60, { bold: true, h: 'center', border: true });
   setCell(ws, 'K10', '', { border: true });
   setCell(ws, 'L10', '', { border: true });
 
+  // Row 11 — Column letters (A11:C11 merged per actual report)
   ws.getRow(11).height = 18;
+  ws.mergeCells('A11:C11');
   setCell(ws, 'A11', 'A', { bold: true, h: 'center', border: true });
-  ws.mergeCells('B11:C11'); setCell(ws, 'B11', '', { border: true });
   setCell(ws, 'D11', 'B', { bold: true, h: 'center', border: true });
   setCell(ws, 'E11', 'C', { bold: true, h: 'center', border: true });
-  ws.mergeCells('F11:G11'); setCell(ws, 'F11', 'D', { bold: true, h: 'center', border: true });
+  ws.mergeCells('F11:G11');
+  setCell(ws, 'F11', 'D', { bold: true, h: 'center', border: true });
   setCell(ws, 'H11', 'E', { bold: true, h: 'center', border: true });
   setCell(ws, 'I11', 'F', { bold: true, h: 'center', border: true });
   setCell(ws, 'J11', 'G', { bold: true, h: 'center', border: true });
@@ -165,7 +192,8 @@ export const generateSubjectReportExcel = async (reportData, subjectType) => {
 
     const { b, c, d, e, f } = distributeSubjectMarks(target, isOutOf30);
 
-    setCell(ws, `A${rowIdx}`, trainee.rollNumber || trainee.enrollmentNumber || '', { h: 'left', border: true });
+    // Roll number: plain cell, NOT merged, matching actual report exactly
+    setCell(ws, `A${rowIdx}`, trainee.rollNumber || trainee.enrollmentNumber || '', { h: 'left', border: true, size: 10 });
     ws.mergeCells(`B${rowIdx}:C${rowIdx}`);
     setCell(ws, `B${rowIdx}`, trainee.name || '', { h: 'left', border: true });
     setCell(ws, `D${rowIdx}`, b, { h: 'center', border: true });
@@ -180,13 +208,19 @@ export const generateSubjectReportExcel = async (reportData, subjectType) => {
     rowIdx++;
   }
 
+  // Sign block — matches actual report's exact merges:
+  // B(blank row), then "Sign of SI / Sign of FI" merged B:K, then SI name (B:C merged),
+  // then ITI name appearing TWICE: once at B:C merged, once at H:K merged.
   rowIdx++;
   ws.mergeCells(`B${rowIdx}:K${rowIdx}`);
-  setCell(ws, `B${rowIdx}`, 'Sign of SI :                                                            Sign of FI :');
+  setCell(ws, `B${rowIdx}`, 'Sign of SI :                                                                                                                            Sign of FI :');
   rowIdx++;
+  ws.mergeCells(`B${rowIdx}:C${rowIdx}`);
   setCell(ws, `B${rowIdx}`, instructorData.displayName || '', { bold: true });
   rowIdx++;
+  ws.mergeCells(`B${rowIdx}:C${rowIdx}`);
   setCell(ws, `B${rowIdx}`, instructorData.itiName || '');
+  ws.mergeCells(`H${rowIdx}:K${rowIdx}`);
   setCell(ws, `H${rowIdx}`, instructorData.itiName || '');
 
   return wb;
@@ -201,71 +235,4 @@ export const downloadWorkbook = async (wb, filename) => {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-};
-
-export const generateSubjectReportPDF = (reportData, subjectType) => {
-  const {
-    trainees, subjectMarks, instructorData, batchData,
-    half, assessmentDate, tradeData, has5Subjects,
-  } = reportData;
-  const isOutOf30 = !has5Subjects && subjectType === 'ES';
-  const subjectTitleMap = {
-    ES: 'FORMAT FOR INTERNAL ASSESSMENT FOR EMPLOYABILITY SKILLS',
-    WCS: 'FORMAT FOR INTERNAL ASSESSMENT FOR WORKSHOP CALCULATION & SCIENCE',
-    ED: 'FORMAT FOR INTERNAL ASSESSMENT FOR ENGINEERING DRAWING',
-  };
-  const convertLabel = isOutOf30 ? 'Converted (/30)' : 'Converted (/10)';
-  const marksLookup = {};
-  for (const m of subjectMarks) marksLookup[m.traineeId] = m;
-
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.text(subjectType === 'ES' ? 'ANNEXURE-III (FAR-2)' : '(FAR-2)', 14, 10);
-  doc.setFontSize(8);
-  doc.text('Internal Assessment', 14, 15);
-  doc.text(subjectTitleMap[subjectType], 14, 20);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7);
-  doc.text(`Assessor: ${instructorData.displayName || ''}`, 14, 26);
-  doc.text(`Year of Enrolment: ${batchData.yearOfAssessment || ''}`, 120, 26);
-  doc.text(`ITI: ${instructorData.itiName || ''}`, 14, 31);
-  doc.text(`Date of Assessment: ${assessmentDate || ''}`, 120, 31);
-  doc.text(`Address: ${instructorData.address || ''}`, 14, 36);
-  doc.text(`Assessment Location: ${instructorData.itiName || ''}`, 120, 36);
-  doc.text(`Trade: ${tradeData?.name || ''}`, 14, 41);
-  doc.text(`Duration: ${tradeData?.duration || ''} Year`, 120, 41);
-  doc.text(`SEM: ${half}`, 170, 41);
-  doc.text(`Batch No: ${batchData.batchNumber || ''}`, 14, 46);
-
-  const head = [['Roll No', 'Name', 'Attend\n(B/5)', 'Speed\n(C/5)', 'Creative\n(D/10)', 'Q1\n(E/20)', 'Q2\n(F/20)', 'Total\n(G/60)', convertLabel]];
-  const body = trainees.map(trainee => {
-    const markEntry = marksLookup[trainee.id] || {};
-    let target = isOutOf30 ? 15 : 5;
-    if (subjectType === 'ES') target = markEntry.totalESMarks ?? target;
-    else if (subjectType === 'WCS') target = markEntry.totalWCSMarks ?? target;
-    else target = markEntry.totalEDMarks ?? target;
-    const { b, c, d, e, f, total60 } = distributeSubjectMarks(target, isOutOf30);
-    const converted = isOutOf30 ? total60 / 2 : parseFloat((total60 / 6).toFixed(4));
-    return [trainee.enrollmentNumber || '', trainee.name || '', b, c, d, e, f, total60, converted];
-  });
-
-  autoTable(doc, {
-    head, body, startY: 50,
-    styles: { fontSize: 7, cellPadding: 2, halign: 'center', valign: 'middle', lineColor: [0, 0, 0], lineWidth: 0.2 },
-    headStyles: { fillColor: [210, 225, 242], textColor: [0, 0, 0], fontStyle: 'bold' },
-    columnStyles: {
-      0: { cellWidth: 25, halign: 'left' }, 1: { cellWidth: 60, halign: 'left' },
-      2: { cellWidth: 14 }, 3: { cellWidth: 14 }, 4: { cellWidth: 14 },
-      5: { cellWidth: 14 }, 6: { cellWidth: 14 }, 7: { cellWidth: 14 }, 8: { cellWidth: 22 },
-    },
-  });
-
-  const finalY = (doc.lastAutoTable?.finalY || 200) + 10;
-  doc.setFontSize(8);
-  doc.text('Sign of SI:', 14, finalY);
-  doc.text('Sign of FI:', 100, finalY);
-  doc.text(instructorData.displayName || '', 14, finalY + 6);
-  doc.text(instructorData.itiName || '', 14, finalY + 12);
-  return doc;
 };
