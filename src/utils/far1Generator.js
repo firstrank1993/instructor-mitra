@@ -286,3 +286,143 @@ export const downloadWorkbook = async (wb, filename) => {
   a.click();
   URL.revokeObjectURL(url);
 };
+
+// ============================================
+// PDF GENERATION — mirrors the Excel layout exactly
+// One page per trainee, A4 landscape, same header info and same 9-criteria table.
+// ============================================
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
+export const generateFAR1PDF = (reportData) => {
+  const { trainees, distributedMarks, instructorData, batchData, half, assessmentDate, tradeData } = reportData;
+  const displayDate = toDisplayDate(assessmentDate);
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  let firstPage = true;
+
+  for (const trainee of trainees) {
+    const traineeMarks = distributedMarks.filter(m => m.traineeId === trainee.id && m.half === half);
+    if (traineeMarks.length === 0) continue;
+    if (!firstPage) doc.addPage();
+    firstPage = false;
+
+    const loGroups = {};
+    for (const mark of traineeMarks) {
+      if (!loGroups[mark.loId]) {
+        loGroups[mark.loId] = { loId: mark.loId, loName: mark.loName, loNumber: mark.loNumber, loMark: mark.loMark, practicals: [] };
+      }
+      loGroups[mark.loId].practicals.push(mark);
+    }
+    const sortedLOs = Object.values(loGroups).sort((a, b) => a.loNumber - b.loNumber);
+
+    let yearOfEnrollment = batchData.yearOfAssessment || '';
+    const doa = trainee.dateOfAdmission || '';
+    if (doa.includes('/')) { const p = doa.split('/'); if (p.length === 3) yearOfEnrollment = p[2]; }
+    else if (doa.includes('-')) yearOfEnrollment = doa.split('-')[0];
+
+    // Header block (mirrors rows 1-5 of the Excel sheet)
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text('Internal Assessment', 148, 8, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    const y0 = 13;
+    doc.text(`Name of Trainee: ${trainee.name || ''}`, 5, y0);
+    doc.text(`Roll No: ${trainee.rollNumber || trainee.enrollmentNumber || ''}`, 130, y0);
+    doc.text(`Year of Enrollment: ${yearOfEnrollment}`, 175, y0);
+    doc.text(`Sem: ${half}`, 225, y0);
+
+    doc.text(`Name of ITI: ${instructorData.itiName || ''}`, 5, y0 + 4);
+    doc.text(`Date of Assessment: ${displayDate}`, 130, y0 + 4);
+    doc.text(`Batch: ${batchData.batchNumber || ''}`, 225, y0 + 4);
+
+    doc.text(`Name of the Industry: ${tradeData?.name || ''}`, 5, y0 + 8);
+    doc.text(`Assessment Location: ${instructorData.address || ''}`, 130, y0 + 8);
+
+    doc.text(`Trade Name: ${tradeData?.name || ''}`, 5, y0 + 12);
+    doc.text(`Duration of the Trade: ${tradeData?.duration || ''} Year`, 130, y0 + 12);
+    doc.text(`S.I.Name: ${instructorData.displayName || ''}`, 200, y0 + 12);
+
+    // Table — 9 criteria groups, each with sub-criteria + total, then Grand Total + 2 sign columns
+    // Group header row (criteria names spanning their sub-columns)
+    const groupHead = [
+      { content: '', colSpan: 2 },
+      { content: 'Safety', colSpan: 4 }, { content: 'Hygiene', colSpan: 4 }, { content: 'Attendance', colSpan: 4 },
+      { content: 'Manuals', colSpan: 4 }, { content: 'Knowledge', colSpan: 4 }, { content: 'Tools', colSpan: 4 },
+      { content: 'Speed', colSpan: 4 }, { content: 'Quality', colSpan: 4 }, { content: 'VIVA', colSpan: 4 },
+      { content: '', colSpan: 3 },
+    ];
+    const subHead = [
+      'LO', 'P#',
+      'DC/2', 'PPE/5', 'Sft/8', 'C1/15',
+      'Cln/3', 'Scr/2', 'Mat/5', 'C2/10',
+      'Ini/3', 'Acc/3', 'Par/4', 'C3/10',
+      'Man/1', 'Src/2', 'Rd/2', 'C4/5',
+      'Pln/4', 'Tls/3', 'Rev/3', 'C5/10',
+      'Hdl/4', 'Sft/3', 'Car/3', 'C6/10',
+      'Seq/3', 'Tec/5', 'REx/2', 'C7/10',
+      'Acc/7', 'Cnf/3', 'Sat/5', 'C8/15',
+      'Rsp/7', 'Tec/5', 'Job/3', 'C9/15',
+      'GT/100', 'Sign\nTrainee', 'Sign\nSI',
+    ];
+
+    const body = [];
+    for (const lo of sortedLOs) {
+      const sortedPracticals = [...lo.practicals].sort((a, b) => (a.practicalNumber || 0) - (b.practicalNumber || 0));
+      for (const practical of sortedPracticals) {
+        const row = [`LO-${lo.loNumber}`, practical.practicalNumber];
+        let grandTotal = 0;
+        for (const criteria of (practical.criteriaMarks || [])) {
+          for (const sub of criteria.subCriteriaMarks) row.push(sub.allocatedMark);
+          row.push(criteria.allocatedMark);
+          grandTotal += criteria.allocatedMark;
+        }
+        row.push(grandTotal, '', '');
+        body.push(row);
+      }
+      // LO average row — light teal fill, matching Excel
+      const avgRow = new Array(41).fill('');
+      avgRow[0] = (lo.loName || `LO ${lo.loNumber}`).substring(0, 50);
+      avgRow[37] = `Avg LO${lo.loNumber}`;
+      avgRow[38] = lo.loMark || 0;
+      avgRow._isAvg = true;
+      body.push(avgRow);
+    }
+    const overallAvg = sortedLOs.length > 0
+      ? Math.round(sortedLOs.reduce((s, lo) => s + (lo.loMark || 0), 0) / sortedLOs.length)
+      : 0;
+    const finalRow = new Array(41).fill('');
+    finalRow[0] = 'Average of All LO';
+    finalRow[38] = overallAvg;
+    finalRow._isOverall = true;
+    body.push(finalRow);
+
+    autoTable(doc, {
+      head: [groupHead, subHead],
+      body,
+      startY: y0 + 17,
+      styles: { fontSize: 5, cellPadding: 0.7, valign: 'middle', halign: 'center', lineColor: [0, 0, 0], lineWidth: 0.1 },
+      headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 5, lineWidth: 0.15 },
+      columnStyles: { 0: { cellWidth: 18, halign: 'left' }, 1: { cellWidth: 8 } },
+      margin: { left: 5, right: 5 },
+      tableWidth: 'auto',
+      didParseCell: (data) => {
+        if (data.section === 'body') {
+          const row = data.row.raw;
+          if (row && row._isAvg) {
+            data.cell.styles.fillColor = [175, 238, 238];
+            data.cell.styles.fontStyle = 'bold';
+          }
+          if (row && row._isOverall) {
+            data.cell.styles.fillColor = [211, 211, 211];
+            data.cell.styles.fontStyle = 'bold';
+          }
+        }
+      },
+    });
+  }
+
+  return doc;
+};

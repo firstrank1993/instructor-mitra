@@ -236,3 +236,102 @@ export const downloadWorkbook = async (wb, filename) => {
   a.click();
   URL.revokeObjectURL(url);
 };
+
+// ============================================
+// PDF GENERATION — mirrors the Excel layout exactly
+// Single page, A4 portrait, same header rows 1-8 and same 12-column table.
+// ============================================
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
+export const generateSubjectReportPDF = (reportData, subjectType) => {
+  const {
+    trainees, subjectMarks, instructorData, batchData,
+    half, assessmentDate, tradeData, has5Subjects,
+  } = reportData;
+
+  const isOutOf30 = !has5Subjects && subjectType === 'ES';
+  const titleMap = { ES: 'ANNEXURE-III (FAR-2 )', WCS: '(FAR-2 )', ED: '(FAR-2 )' };
+  const subjectTitleMap = {
+    ES: 'FORMAT FOR INTERNAL ASSESSMENT FOR EMPLOYABILITY SKILLS',
+    WCS: 'FORMAT FOR INTERNAL ASSESSMENT FOR WORKSHOP CALCULATION & SCIENCE',
+    ED: 'FORMAT FOR INTERNAL ASSESSMENT FOR ENGINEERING DRAWING',
+  };
+  const convertLabel = isOutOf30 ? 'Converted\n(/30)' : 'Converted\n(/10)';
+  const displayDate = toDisplayDate(assessmentDate);
+  const marksLookup = {};
+  for (const m of subjectMarks) marksLookup[m.traineeId] = m;
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text(titleMap[subjectType], 105, 10, { align: 'center' });
+  doc.setFontSize(9);
+  doc.text('Internal Assessment', 105, 16, { align: 'center' });
+  doc.setFontSize(8);
+  doc.text(subjectTitleMap[subjectType], 105, 21, { align: 'center' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  const y0 = 27;
+  doc.text(`Name & Address of the Assessor: ${instructorData.displayName || ''}`, 6, y0);
+  doc.text(`Year of Enrolment: ${batchData.yearOfAssessment || ''}`, 130, y0);
+  doc.text(`Name & Address of ITI: ${instructorData.itiName || ''}`, 6, y0 + 5);
+  doc.text(`Date of Assessment: ${displayDate}`, 130, y0 + 5);
+  doc.text(`Name & Address of Industry: ${instructorData.address || ''}`, 6, y0 + 10);
+  doc.text(`Assessment Location: ${instructorData.itiName || ''}`, 130, y0 + 10);
+  doc.text(`Trade Name: ${tradeData?.name || ''}`, 6, y0 + 15);
+  doc.text(`Duration: ${tradeData?.duration || ''} Year`, 100, y0 + 15);
+  doc.text(`SEM: ${half}`, 150, y0 + 15);
+  doc.text(`Batch No: ${batchData.batchNumber || ''}`, 6, y0 + 20);
+
+  // Verified, page-fitted column widths for A4 portrait (sum = 194mm usable width)
+  const colWidths = [16.02, 44.5, 14.24, 24.92, 24.92, 12.46, 12.46, 12.46, 19.58, 12.46];
+
+  const head = [[
+    'Roll\nNo', 'Name', 'Attend\n(B/5)', 'Speed\n(C/5)', 'Creative\n(D/10)',
+    'Q1\n(E/20)', 'Q2\n(F/20)', 'Total\n(G/60)', convertLabel, 'Sign of\nTrainee',
+  ]];
+
+  const body = trainees.map(trainee => {
+    const markEntry = marksLookup[trainee.id] || {};
+    let target = isOutOf30 ? 15 : 5;
+    if (subjectType === 'ES') target = markEntry.totalESMarks ?? target;
+    else if (subjectType === 'WCS') target = markEntry.totalWCSMarks ?? target;
+    else target = markEntry.totalEDMarks ?? target;
+
+    const { b, c, d, e, f, total60 } = distributeSubjectMarks(target, isOutOf30);
+    const converted = isOutOf30 ? total60 / 2 : parseFloat((total60 / 6).toFixed(4));
+
+    return [
+      trainee.rollNumber || trainee.enrollmentNumber || '',
+      trainee.name || '',
+      b, c, d, e, f, total60, converted, '',
+    ];
+  });
+
+  autoTable(doc, {
+    head, body, startY: y0 + 25,
+    styles: { fontSize: 7, cellPadding: 1.5, halign: 'center', valign: 'middle', lineColor: [0, 0, 0], lineWidth: 0.15 },
+    headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold' },
+    columnStyles: {
+      0: { cellWidth: colWidths[0], halign: 'left' },
+      1: { cellWidth: colWidths[1], halign: 'left' },
+      2: { cellWidth: colWidths[2] }, 3: { cellWidth: colWidths[3] }, 4: { cellWidth: colWidths[4] },
+      5: { cellWidth: colWidths[5] }, 6: { cellWidth: colWidths[6] }, 7: { cellWidth: colWidths[7] },
+      8: { cellWidth: colWidths[8] }, 9: { cellWidth: colWidths[9] },
+    },
+    margin: { left: 8, right: 8 },
+  });
+
+  const finalY = (doc.lastAutoTable?.finalY || 200) + 10;
+  doc.setFontSize(8);
+  doc.text('Sign of SI :', 8, finalY);
+  doc.text('Sign of FI :', 110, finalY);
+  doc.text(instructorData.displayName || '', 8, finalY + 6);
+  doc.text(instructorData.itiName || '', 8, finalY + 12);
+  doc.text(instructorData.itiName || '', 110, finalY + 12);
+
+  return doc;
+};
